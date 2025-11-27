@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir=false --import-alias=\"@/*\" --use-npm --no-turbopack)",
+      "Bash(claude mcp list:*)",
+      "Bash(claude mcp add:*)",
+      "Bash(git init:*)",
+      "Bash(claude mcp remove:*)",
+      "Bash(git remote add:*)",
+      "Bash(npx:*)",
+      "WebSearch",
+      "mcp__supabase__list_tables",
+      "Bash(npm install)",
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__get_publishable_keys",
+      "Bash(npm run dev:*)",
+      "mcp__supabase__apply_migration",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
