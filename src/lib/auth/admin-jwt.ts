@@ -9,7 +9,8 @@ const ADMIN_TOKEN_NAME = 'admin_token'
 
 export interface AdminTokenPayload {
   adminId: string
-  username: string
+  email: string
+  name: string
   role: 'master'
   iat?: number
   exp?: number

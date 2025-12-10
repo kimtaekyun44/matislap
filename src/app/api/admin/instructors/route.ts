@@ -22,8 +22,8 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
 
     let query = supabaseAdmin
-      .from('instructor_profiles')
-      .select('*')
+      .from('instructor_users')
+      .select('id, email, name, organization, phone, approval_status, created_at')
       .order('created_at', { ascending: false })
 
     if (status) {

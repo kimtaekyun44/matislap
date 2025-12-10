@@ -31,9 +31,9 @@ export async function POST(
       )
     }
 
-    // 강사 프로필 업데이트
+    // 강사 업데이트
     const { error } = await supabaseAdmin
-      .from('instructor_profiles')
+      .from('instructor_users')
       .update({
         approval_status: status,
         approved_at: status === 'approved' ? new Date().toISOString() : null,

@@ -15,7 +15,8 @@ export async function GET() {
     return NextResponse.json({
       admin: {
         id: session.adminId,
-        username: session.username,
+        email: session.email,
+        name: session.name,
         role: session.role,
       },
     })

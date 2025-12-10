@@ -1,0 +1,28 @@
+c:\project\matislap>npm run dev
+
+> metislap@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.5
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1736ms
+ ✓ Compiled /src/middleware in 284ms (159 modules)
+ ○ Compiling / ...
+ ✓ Compiled / in 1122ms (502 modules)
+ GET / 200 in 2903ms
+[Error: UNKNOWN: unknown error, open 'c:\project\matislap\.next\static\chunks\app\layout.js'] {
+  errno: -4094,
+  code: 'UNKNOWN',
+  syscall: 'open',
+  path: 'c:\\project\\matislap\\.next\\static\\chunks\\app\\layout.js'
+}
+[Error: UNKNOWN: unknown error, open 'c:\project\matislap\.next\static\chunks\app\layout.js'] {
+  errno: -4094,
+  code: 'UNKNOWN',
+  syscall: 'open',
+  path: 'c:\\project\\matislap\\.next\\static\\chunks\\app\\layout.js'
+}
+

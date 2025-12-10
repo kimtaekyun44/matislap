@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { createAdminToken, setAdminCookie } from '@/lib/auth/admin-jwt'
+import { createClient } from '@/lib/supabase/client'
 import { verifyPassword } from '@/lib/auth/admin-utils'
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-)
+import { createInstructorToken, setInstructorCookie } from '@/lib/auth/instructor-jwt'
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,14 +14,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // admin_users 테이블에서 사용자 조회
-    const { data: admin, error } = await supabaseAdmin
-      .from('admin_users')
+    const supabase = createClient()
+
+    // 사용자 조회
+    const { data: user, error } = await supabase
+      .from('instructor_users')
       .select('*')
       .eq('email', email)
       .single()
 
-    if (error || !admin) {
+    if (error || !user) {
       return NextResponse.json(
         { error: '이메일 또는 비밀번호가 올바르지 않습니다.' },
         { status: 401 }
@@ -34,7 +31,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 비밀번호 검증
-    const isValidPassword = await verifyPassword(password, admin.password_hash)
+    const isValidPassword = await verifyPassword(password, user.password_hash)
 
     if (!isValidPassword) {
       return NextResponse.json(
@@ -44,33 +41,33 @@ export async function POST(request: NextRequest) {
     }
 
     // JWT 토큰 생성
-    const token = await createAdminToken({
-      adminId: admin.id,
-      email: admin.email,
-      name: admin.name,
-      role: 'master',
+    const token = await createInstructorToken({
+      instructorId: user.id,
+      email: user.email,
+      name: user.name,
+      approvalStatus: user.approval_status,
     })
 
     // 쿠키에 토큰 저장
-    await setAdminCookie(token)
+    await setInstructorCookie(token)
 
     // 마지막 로그인 시간 업데이트
-    await supabaseAdmin
-      .from('admin_users')
+    await supabase
+      .from('instructor_users')
       .update({ last_login: new Date().toISOString() })
-      .eq('id', admin.id)
+      .eq('id', user.id)
 
     return NextResponse.json({
       success: true,
-      mustChangePassword: admin.must_change_password,
-      admin: {
-        id: admin.id,
-        email: admin.email,
-        name: admin.name,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        approvalStatus: user.approval_status,
       },
     })
   } catch (error) {
-    console.error('Admin login error:', error)
+    console.error('Login error:', error)
     return NextResponse.json(
       { error: '로그인 처리 중 오류가 발생했습니다.' },
       { status: 500 }

@@ -11,7 +11,8 @@ export default function AdminSetupPage() {
   const router = useRouter()
   const [formData, setFormData] = useState({
     setupKey: '',
-    username: '',
+    email: '',
+    name: '',
     password: '',
     confirmPassword: '',
   })
@@ -44,7 +45,8 @@ export default function AdminSetupPage() {
         },
         body: JSON.stringify({
           setupKey: formData.setupKey,
-          username: formData.username,
+          email: formData.email,
+          name: formData.name,
           password: formData.password,
         }),
       })
@@ -96,15 +98,31 @@ export default function AdminSetupPage() {
               </p>
             </div>
             <div className="space-y-2">
-              <label htmlFor="username" className="text-sm font-medium text-slate-300">
-                관리자 ID
+              <label htmlFor="email" className="text-sm font-medium text-slate-300">
+                관리자 이메일
               </label>
               <Input
-                id="username"
-                name="username"
+                id="email"
+                name="email"
+                type="email"
+                placeholder="admin@metislap.com"
+                value={formData.email}
+                onChange={handleChange}
+                required
+                disabled={loading}
+                className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-400"
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="name" className="text-sm font-medium text-slate-300">
+                관리자 이름
+              </label>
+              <Input
+                id="name"
+                name="name"
                 type="text"
-                placeholder="admin"
-                value={formData.username}
+                placeholder="관리자"
+                value={formData.name}
                 onChange={handleChange}
                 required
                 disabled={loading}

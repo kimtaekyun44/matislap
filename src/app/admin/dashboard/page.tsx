@@ -8,7 +8,8 @@ import toast from 'react-hot-toast'
 
 interface AdminUser {
   id: string
-  username: string
+  email: string
+  name: string
   role: string
 }
 
@@ -109,7 +110,7 @@ export default function AdminDashboardPage() {
           <h1 className="text-xl font-bold">MetisLap Admin</h1>
           <div className="flex items-center gap-4">
             <span className="text-slate-400">
-              {admin?.username}
+              {admin?.name || admin?.email}
             </span>
             <Button variant="outline" size="sm" onClick={handleLogout}>
               로그아웃

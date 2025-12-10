@@ -8,7 +8,7 @@ import { hashPassword } from '@/lib/auth/admin-utils'
  */
 export async function POST(request: NextRequest) {
   try {
-    const { username, password, setupKey } = await request.json()
+    const { email, name, password, setupKey } = await request.json()
 
     // 환경변수의 setup key 확인 (보안)
     const validSetupKey = process.env.ADMIN_SETUP_KEY || 'metislap-setup-2024'
@@ -19,9 +19,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!username || !password) {
+    if (!email || !name || !password) {
       return NextResponse.json(
-        { error: '아이디와 비밀번호를 입력해주세요.' },
+        { error: '이메일, 이름, 비밀번호를 입력해주세요.' },
         { status: 400 }
       )
     }
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     const supabase = createClient()
 
     // 이미 관리자가 있는지 확인
-    const { data: existingAdmin, error: checkError } = await supabase
+    const { data: existingAdmin } = await supabase
       .from('admin_users')
       .select('id')
       .limit(1)
@@ -56,12 +56,12 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('admin_users')
       .insert({
-        username,
+        email,
+        name,
         password_hash: passwordHash,
-        role: 'master',
         must_change_password: false,
       })
-      .select('id, username')
+      .select('id, email, name')
       .single()
 
     if (error) {

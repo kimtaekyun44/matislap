@@ -3,91 +3,133 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import toast from 'react-hot-toast'
 
-interface InstructorProfile {
+interface UserSession {
   id: string
   email: string
   name: string
-  organization: string | null
+  approvalStatus: 'pending' | 'approved' | 'rejected'
 }
 
 interface GameRoom {
   id: string
   room_code: string
-  name: string
+  room_name: string
+  game_type: string
   status: string
   created_at: string
 }
 
+const GAME_TYPES = [
+  { value: 'quiz', label: '퀴즈 게임' },
+  { value: 'drawing', label: '그림 그리기' },
+  { value: 'word_chain', label: '단어 연상' },
+  { value: 'speed_quiz', label: '스피드 퀴즈' },
+  { value: 'voting', label: '투표 게임' },
+]
+
 export default function InstructorDashboardPage() {
   const router = useRouter()
-  const [profile, setProfile] = useState<InstructorProfile | null>(null)
+  const [user, setUser] = useState<UserSession | null>(null)
   const [rooms, setRooms] = useState<GameRoom[]>([])
   const [loading, setLoading] = useState(true)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [newRoom, setNewRoom] = useState({
+    roomName: '',
+    gameType: 'quiz',
+    maxParticipants: 30,
+  })
 
   useEffect(() => {
     checkSession()
   }, [])
 
   const checkSession = async () => {
-    const supabase = createClient()
+    try {
+      const response = await fetch('/api/auth/me')
 
-    const { data: { user } } = await supabase.auth.getUser()
+      if (!response.ok) {
+        router.push('/login')
+        return
+      }
 
-    if (!user) {
+      const data = await response.json()
+
+      if (data.user.approvalStatus !== 'approved') {
+        router.push('/pending')
+        return
+      }
+
+      setUser(data.user)
+      await fetchRooms()
+    } catch {
       router.push('/login')
-      return
+    } finally {
+      setLoading(false)
     }
+  }
 
-    // 프로필 및 승인 상태 확인
-    const { data: profileData, error: profileError } = await supabase
-      .from('instructor_profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single()
-
-    if (profileError || !profileData) {
-      toast.error('프로필을 찾을 수 없습니다.')
-      await supabase.auth.signOut()
-      router.push('/login')
-      return
+  const fetchRooms = async () => {
+    try {
+      const response = await fetch('/api/games/rooms')
+      if (response.ok) {
+        const data = await response.json()
+        setRooms(data.rooms || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch rooms:', error)
     }
-
-    if (profileData.approval_status !== 'approved') {
-      router.push('/pending')
-      return
-    }
-
-    setProfile(profileData)
-
-    // 게임 방 목록 가져오기
-    const { data: roomsData } = await supabase
-      .from('game_rooms')
-      .select('*')
-      .eq('instructor_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(10)
-
-    if (roomsData) {
-      setRooms(roomsData)
-    }
-
-    setLoading(false)
   }
 
   const handleLogout = async () => {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/')
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+      router.push('/')
+    } catch {
+      router.push('/')
+    }
   }
 
   const handleCreateRoom = async () => {
-    // TODO: 방 생성 로직 구현
-    toast.success('방 생성 기능은 곧 추가됩니다!')
+    if (!newRoom.roomName.trim()) {
+      toast.error('방 이름을 입력해주세요.')
+      return
+    }
+
+    setCreateLoading(true)
+
+    try {
+      const response = await fetch('/api/games/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRoom),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || '방 생성에 실패했습니다.')
+        return
+      }
+
+      toast.success(`게임 방이 생성되었습니다! 코드: ${data.room.room_code}`)
+      setShowCreateModal(false)
+      setNewRoom({ roomName: '', gameType: 'quiz', maxParticipants: 30 })
+      await fetchRooms()
+    } catch {
+      toast.error('방 생성 중 오류가 발생했습니다.')
+    } finally {
+      setCreateLoading(false)
+    }
+  }
+
+  const handleManageRoom = (roomId: string) => {
+    router.push(`/room/${roomId}`)
   }
 
   if (loading) {
@@ -107,7 +149,7 @@ export default function InstructorDashboardPage() {
           </Link>
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">
-              {profile?.name}님
+              {user?.name}님
             </span>
             <Button variant="outline" size="sm" onClick={handleLogout}>
               로그아웃
@@ -127,7 +169,10 @@ export default function InstructorDashboardPage() {
         <div className="grid gap-6">
           {/* 빠른 액션 */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="cursor-pointer hover:shadow-lg transition-shadow" onClick={handleCreateRoom}>
+            <Card
+              className="cursor-pointer hover:shadow-lg transition-shadow"
+              onClick={() => setShowCreateModal(true)}
+            >
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   + 새 게임 방 만들기
@@ -169,7 +214,7 @@ export default function InstructorDashboardPage() {
                   <p className="text-muted-foreground mb-4">
                     아직 생성한 게임 방이 없습니다.
                   </p>
-                  <Button onClick={handleCreateRoom}>
+                  <Button onClick={() => setShowCreateModal(true)}>
                     첫 번째 게임 방 만들기
                   </Button>
                 </div>
@@ -181,24 +226,30 @@ export default function InstructorDashboardPage() {
                       className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
                     >
                       <div>
-                        <p className="font-medium">{room.name}</p>
+                        <p className="font-medium">{room.room_name}</p>
                         <p className="text-sm text-muted-foreground">
-                          방 코드: {room.room_code}
+                          방 코드: <span className="font-mono font-bold">{room.room_code}</span>
+                          {' | '}
+                          {GAME_TYPES.find(g => g.value === room.game_type)?.label || room.game_type}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span
                           className={`px-2 py-1 text-xs rounded-full ${
-                            room.status === 'active'
+                            room.status === 'in_progress'
                               ? 'bg-green-100 text-green-700'
                               : room.status === 'waiting'
                               ? 'bg-yellow-100 text-yellow-700'
                               : 'bg-gray-100 text-gray-700'
                           }`}
                         >
-                          {room.status === 'active' ? '진행중' : room.status === 'waiting' ? '대기중' : '종료'}
+                          {room.status === 'in_progress' ? '진행중' : room.status === 'waiting' ? '대기중' : '종료'}
                         </span>
-                        <Button variant="outline" size="sm">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleManageRoom(room.id)}
+                        >
                           관리
                         </Button>
                       </div>
@@ -210,6 +261,72 @@ export default function InstructorDashboardPage() {
           </Card>
         </div>
       </main>
+
+      {/* 방 생성 모달 */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>새 게임 방 만들기</CardTitle>
+              <CardDescription>게임 방 정보를 입력하세요</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">방 이름</label>
+                <Input
+                  placeholder="예: 1교시 아이스브레이킹"
+                  value={newRoom.roomName}
+                  onChange={(e) => setNewRoom({ ...newRoom, roomName: e.target.value })}
+                  disabled={createLoading}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">게임 타입</label>
+                <select
+                  className="w-full p-2 border rounded-md bg-background"
+                  value={newRoom.gameType}
+                  onChange={(e) => setNewRoom({ ...newRoom, gameType: e.target.value })}
+                  disabled={createLoading}
+                >
+                  {GAME_TYPES.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">최대 참가자 수</label>
+                <Input
+                  type="number"
+                  min={2}
+                  max={100}
+                  value={newRoom.maxParticipants}
+                  onChange={(e) => setNewRoom({ ...newRoom, maxParticipants: parseInt(e.target.value) || 30 })}
+                  disabled={createLoading}
+                />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setShowCreateModal(false)}
+                  disabled={createLoading}
+                >
+                  취소
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={handleCreateRoom}
+                  disabled={createLoading}
+                >
+                  {createLoading ? '생성 중...' : '생성하기'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

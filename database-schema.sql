@@ -28,7 +28,7 @@ CREATE TYPE room_status AS ENUM ('waiting', 'in_progress', 'finished');
 -- 3. 테이블 생성
 -- ========================================
 
--- 관리자 테이블 (Supabase Auth와 별개)
+-- 관리자 테이블 (Custom JWT 인증)
 CREATE TABLE admin_users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) UNIQUE NOT NULL,
@@ -40,10 +40,11 @@ CREATE TABLE admin_users (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 강사 프로필 (Supabase Auth 확장)
-CREATE TABLE instructor_profiles (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+-- 강사 테이블 (Custom JWT 인증)
+CREATE TABLE instructor_users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(100) NOT NULL,
     organization VARCHAR(255),
     phone VARCHAR(20),
@@ -51,6 +52,7 @@ CREATE TABLE instructor_profiles (
     approved_at TIMESTAMPTZ,
     approved_by UUID REFERENCES admin_users(id),
     rejection_reason TEXT,
+    last_login TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -59,7 +61,7 @@ CREATE TABLE instructor_profiles (
 CREATE TABLE game_rooms (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     room_code VARCHAR(6) UNIQUE NOT NULL,
-    instructor_id UUID NOT NULL REFERENCES instructor_profiles(id) ON DELETE CASCADE,
+    instructor_id UUID NOT NULL REFERENCES instructor_users(id) ON DELETE CASCADE,
     game_type game_type NOT NULL,
     room_name VARCHAR(255) NOT NULL,
     max_participants INTEGER DEFAULT 30,
@@ -122,7 +124,8 @@ CREATE TABLE system_logs (
 -- 4. 인덱스 생성
 -- ========================================
 
-CREATE INDEX idx_instructor_profiles_approval_status ON instructor_profiles(approval_status);
+CREATE INDEX idx_instructor_users_approval_status ON instructor_users(approval_status);
+CREATE INDEX idx_instructor_users_email ON instructor_users(email);
 CREATE INDEX idx_game_rooms_instructor_id ON game_rooms(instructor_id);
 CREATE INDEX idx_game_rooms_status ON game_rooms(status);
 CREATE INDEX idx_game_rooms_room_code ON game_rooms(room_code);
@@ -135,52 +138,55 @@ CREATE INDEX idx_system_logs_created_at ON system_logs(created_at DESC);
 -- 5. RLS (Row Level Security) 정책
 -- ========================================
 
--- RLS 활성화
-ALTER TABLE instructor_profiles ENABLE ROW LEVEL SECURITY;
+-- RLS 활성화 (게임 관련 테이블만)
+-- 주의: instructor_users, admin_users는 서버 측에서만 접근하므로 RLS 불필요
 ALTER TABLE game_rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE game_participants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE game_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE game_actions ENABLE ROW LEVEL SECURITY;
 
--- 강사 프로필 정책
-CREATE POLICY "강사는 자신의 프로필 조회 가능" 
-    ON instructor_profiles FOR SELECT 
-    USING (auth.uid() = id);
-
-CREATE POLICY "승인된 강사 프로필은 모두 조회 가능" 
-    ON instructor_profiles FOR SELECT 
-    USING (approval_status = 'approved');
-
-CREATE POLICY "강사는 자신의 프로필 수정 가능" 
-    ON instructor_profiles FOR UPDATE 
-    USING (auth.uid() = id AND approval_status = 'approved');
-
--- 게임 방 정책
-CREATE POLICY "강사는 자신의 방 생성 가능" 
-    ON game_rooms FOR INSERT 
-    WITH CHECK (
-        auth.uid() = instructor_id AND 
-        EXISTS (
-            SELECT 1 FROM instructor_profiles 
-            WHERE id = auth.uid() AND approval_status = 'approved'
-        )
-    );
-
-CREATE POLICY "강사는 자신의 방 수정 가능" 
-    ON game_rooms FOR UPDATE 
-    USING (auth.uid() = instructor_id);
-
-CREATE POLICY "활성 방은 모두 조회 가능" 
-    ON game_rooms FOR SELECT 
+-- 게임 방 정책 (익명 사용자도 조회 가능)
+CREATE POLICY "활성 방은 모두 조회 가능"
+    ON game_rooms FOR SELECT
     USING (status IN ('waiting', 'in_progress'));
 
--- 참가자 정책
-CREATE POLICY "방 참가자는 모두 조회 가능" 
-    ON game_participants FOR SELECT 
+CREATE POLICY "누구나 게임 방 생성 가능"
+    ON game_rooms FOR INSERT
+    WITH CHECK (true);
+
+CREATE POLICY "게임 방 수정 가능"
+    ON game_rooms FOR UPDATE
     USING (true);
 
-CREATE POLICY "누구나 게임 참가 가능" 
-    ON game_participants FOR INSERT 
+-- 참가자 정책
+CREATE POLICY "방 참가자는 모두 조회 가능"
+    ON game_participants FOR SELECT
+    USING (true);
+
+CREATE POLICY "누구나 게임 참가 가능"
+    ON game_participants FOR INSERT
+    WITH CHECK (true);
+
+CREATE POLICY "참가자 정보 수정 가능"
+    ON game_participants FOR UPDATE
+    USING (true);
+
+-- 게임 세션 정책
+CREATE POLICY "게임 세션 조회 가능"
+    ON game_sessions FOR SELECT
+    USING (true);
+
+CREATE POLICY "게임 세션 생성 가능"
+    ON game_sessions FOR INSERT
+    WITH CHECK (true);
+
+-- 게임 액션 정책
+CREATE POLICY "게임 액션 조회 가능"
+    ON game_actions FOR SELECT
+    USING (true);
+
+CREATE POLICY "누구나 게임 액션 생성 가능"
+    ON game_actions FOR INSERT
     WITH CHECK (true);
 
 -- ========================================
@@ -197,10 +203,10 @@ BEGIN
     LOOP
         -- 6자리 랜덤 코드 생성 (숫자+대문자)
         code := UPPER(SUBSTRING(MD5(RANDOM()::TEXT) FROM 1 FOR 6));
-        
+
         -- 중복 확인
         SELECT EXISTS(SELECT 1 FROM game_rooms WHERE room_code = code) INTO exists;
-        
+
         IF NOT exists THEN
             RETURN code;
         END IF;
@@ -233,8 +239,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER update_instructor_profiles_updated_at
-    BEFORE UPDATE ON instructor_profiles
+CREATE TRIGGER update_instructor_users_updated_at
+    BEFORE UPDATE ON instructor_users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_admin_users_updated_at
+    BEFORE UPDATE ON admin_users
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
 
@@ -244,29 +255,30 @@ CREATE TRIGGER update_game_rooms_updated_at
     EXECUTE FUNCTION update_updated_at();
 
 -- ========================================
--- 7. 초기 데이터
+-- 7. 권한 부여
 -- ========================================
 
--- 기본 관리자 계정 생성 (비밀번호: changeme123!)
--- bcrypt hash for 'changeme123!'
-INSERT INTO admin_users (email, password_hash, name, must_change_password)
-VALUES (
-    'admin@metislap.com',
-    '$2b$10$YourBcryptHashHere', -- 실제 배포 시 bcrypt로 생성한 해시값 입력
-    'System Admin',
-    true
-);
-
--- ========================================
--- 8. 권한 부여
--- ========================================
-
--- Supabase anon 권한
+-- Supabase anon 권한 (게임 관련 테이블만)
 GRANT USAGE ON SCHEMA public TO anon;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
-GRANT INSERT ON game_participants TO anon;
+GRANT SELECT ON game_rooms TO anon;
+GRANT SELECT, INSERT, UPDATE ON game_participants TO anon;
+GRANT SELECT ON game_sessions TO anon;
+GRANT SELECT, INSERT ON game_actions TO anon;
 
--- Supabase authenticated 권한  
+-- Supabase authenticated 권한
 GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+
+-- ========================================
+-- 8. 주의사항
+-- ========================================
+--
+-- admin_users와 instructor_users 테이블은 서버 측 API에서만 접근합니다.
+-- 클라이언트에서는 직접 접근하지 않고 API를 통해서만 데이터를 처리합니다.
+--
+-- 인증 방식:
+-- - 관리자: Custom JWT (admin_token 쿠키)
+-- - 강사: Custom JWT (instructor_token 쿠키)
+-- - 학생: 인증 없음 (방 코드로 참여)
+--

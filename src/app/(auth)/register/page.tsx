@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
@@ -22,60 +21,53 @@ export default function InstructorRegisterPage() {
   const [loading, setLoading] = useState(false)
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value })
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    })
   }
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    if (formData.password !== formData.confirmPassword) {
-      toast.error('비밀번호가 일치하지 않습니다.')
-      return
-    }
-
-    if (formData.password.length < 6) {
-      toast.error('비밀번호는 최소 6자 이상이어야 합니다.')
-      return
-    }
-
     setLoading(true)
 
     try {
-      const supabase = createClient()
-
-      // 1. Supabase Auth로 사용자 생성
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-      })
-
-      if (authError) {
-        toast.error(authError.message)
+      // 비밀번호 확인
+      if (formData.password !== formData.confirmPassword) {
+        toast.error('비밀번호가 일치하지 않습니다.')
+        setLoading(false)
         return
       }
 
-      if (authData.user) {
-        // 2. instructor_profiles 테이블에 프로필 생성
-        const { error: profileError } = await supabase
-          .from('instructor_profiles')
-          .insert({
-            id: authData.user.id,
-            email: formData.email,
-            name: formData.name,
-            organization: formData.organization || null,
-            phone: formData.phone || null,
-            approval_status: 'pending',
-          })
-
-        if (profileError) {
-          toast.error('프로필 생성 중 오류가 발생했습니다.')
-          console.error(profileError)
-          return
-        }
-
-        toast.success('회원가입이 완료되었습니다! 관리자 승인을 기다려주세요.')
-        router.push('/pending')
+      if (formData.password.length < 6) {
+        toast.error('비밀번호는 최소 6자 이상이어야 합니다.')
+        setLoading(false)
+        return
       }
+
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          name: formData.name,
+          organization: formData.organization || null,
+          phone: formData.phone || null,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || '회원가입에 실패했습니다.')
+        return
+      }
+
+      toast.success('회원가입이 완료되었습니다!')
+      router.push('/pending')
     } catch (error) {
       toast.error('회원가입 중 오류가 발생했습니다.')
     } finally {
@@ -87,7 +79,7 @@ export default function InstructorRegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">👨‍🏫 강사 회원가입</CardTitle>
+          <CardTitle className="text-2xl">강사 회원가입</CardTitle>
           <CardDescription>
             MetisLap 강사로 등록하세요
           </CardDescription>
@@ -125,6 +117,36 @@ export default function InstructorRegisterPage() {
               />
             </div>
             <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-medium">
+                비밀번호 <span className="text-red-500">*</span>
+              </label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                placeholder="최소 6자 이상"
+                value={formData.password}
+                onChange={handleChange}
+                required
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="confirmPassword" className="text-sm font-medium">
+                비밀번호 확인 <span className="text-red-500">*</span>
+              </label>
+              <Input
+                id="confirmPassword"
+                name="confirmPassword"
+                type="password"
+                placeholder="비밀번호를 다시 입력하세요"
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                required
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
               <label htmlFor="organization" className="text-sm font-medium">
                 소속 (선택)
               </label>
@@ -132,7 +154,7 @@ export default function InstructorRegisterPage() {
                 id="organization"
                 name="organization"
                 type="text"
-                placeholder="OO대학교 / OO회사"
+                placeholder="학교/기관명"
                 value={formData.organization}
                 onChange={handleChange}
                 disabled={loading}
@@ -152,40 +174,10 @@ export default function InstructorRegisterPage() {
                 disabled={loading}
               />
             </div>
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium">
-                비밀번호 <span className="text-red-500">*</span>
-              </label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                placeholder="••••••••"
-                value={formData.password}
-                onChange={handleChange}
-                required
-                disabled={loading}
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="confirmPassword" className="text-sm font-medium">
-                비밀번호 확인 <span className="text-red-500">*</span>
-              </label>
-              <Input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                placeholder="••••••••"
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                required
-                disabled={loading}
-              />
-            </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? '가입 중...' : '회원가입'}
+              {loading ? '처리 중...' : '회원가입'}
             </Button>
             <p className="text-sm text-center text-muted-foreground">
               이미 계정이 있으신가요?{' '}
