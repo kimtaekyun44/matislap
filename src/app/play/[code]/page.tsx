@@ -125,6 +125,13 @@ export default function PlayPage() {
 
     const init = async () => {
       const roomData = await fetchRoomInfo()
+
+      // 그림 그리기 게임이면 전용 페이지로 리다이렉트
+      if (roomData?.game_type === 'drawing') {
+        router.replace(`/play/drawing/${code}`)
+        return
+      }
+
       setLoading(false)
 
       if (roomData?.game_type === 'quiz' && roomData.status === 'in_progress') {

@@ -41,6 +41,13 @@ interface QuizQuestion {
   order_num: number
 }
 
+interface DrawingWord {
+  id: string
+  word: string
+  hint: string | null
+  order_num: number
+}
+
 const GAME_TYPES: Record<string, string> = {
   quiz: '퀴즈 게임',
   drawing: '그림 그리기',
@@ -56,6 +63,7 @@ export default function RoomManagePage() {
   const [room, setRoom] = useState<GameRoom | null>(null)
   const [participants, setParticipants] = useState<Participant[]>([])
   const [questions, setQuestions] = useState<QuizQuestion[]>([])
+  const [drawingWords, setDrawingWords] = useState<DrawingWord[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
 
@@ -71,6 +79,14 @@ export default function RoomManagePage() {
   })
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
 
+  // 그림 그리기 추가 모달 상태
+  const [showDrawingModal, setShowDrawingModal] = useState(false)
+  const [drawingForm, setDrawingForm] = useState({
+    word: '',
+    hint: '',
+  })
+  const [editingWordId, setEditingWordId] = useState<string | null>(null)
+
   useEffect(() => {
     fetchRoom()
     fetchParticipants()
@@ -80,6 +96,8 @@ export default function RoomManagePage() {
       fetchParticipants()
       if (room?.game_type === 'quiz') {
         fetchQuestions()
+      } else if (room?.game_type === 'drawing') {
+        fetchDrawingWords()
       }
     }, 5000)
 
@@ -89,6 +107,8 @@ export default function RoomManagePage() {
   useEffect(() => {
     if (room?.game_type === 'quiz') {
       fetchQuestions()
+    } else if (room?.game_type === 'drawing') {
+      fetchDrawingWords()
     }
   }, [room?.game_type])
 
@@ -140,6 +160,18 @@ export default function RoomManagePage() {
     }
   }
 
+  const fetchDrawingWords = async () => {
+    try {
+      const response = await fetch(`/api/games/drawing?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setDrawingWords(data.words || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch drawing words:', error)
+    }
+  }
+
   const handleStatusChange = async (newStatus: 'waiting' | 'in_progress' | 'finished') => {
     // 퀴즈 게임인 경우 퀴즈 상태 API 사용
     if (room?.game_type === 'quiz') {
@@ -148,7 +180,18 @@ export default function RoomManagePage() {
       } else if (newStatus === 'finished') {
         await handleQuizEnd()
       } else {
-        // 대기 상태로 변경
+        await handleRoomStatusChange(newStatus)
+      }
+      return
+    }
+
+    // 그림 그리기 게임인 경우
+    if (room?.game_type === 'drawing') {
+      if (newStatus === 'in_progress') {
+        await handleDrawingStart()
+      } else if (newStatus === 'finished') {
+        await handleDrawingEnd()
+      } else {
         await handleRoomStatusChange(newStatus)
       }
       return
@@ -226,6 +269,90 @@ export default function RoomManagePage() {
       }
 
       toast.success('퀴즈 게임이 종료되었습니다.')
+      await fetchRoom()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // 그림 그리기 게임 시작
+  const handleDrawingStart = async () => {
+    if (drawingWords.length === 0) {
+      toast.error('제시어를 먼저 추가해주세요.')
+      return
+    }
+
+    setActionLoading(true)
+    try {
+      const response = await fetch('/api/games/drawing/round', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: id, action: 'start' }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        toast.error(data.error || '게임 시작에 실패했습니다.')
+        return
+      }
+
+      toast.success('그림 그리기 게임이 시작되었습니다!')
+      await fetchRoom()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // 그림 그리기 다음 라운드
+  const handleDrawingNext = async () => {
+    setActionLoading(true)
+    try {
+      const response = await fetch('/api/games/drawing/round', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: id, action: 'next' }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        toast.error(data.error || '다음 라운드로 이동 실패')
+        return
+      }
+
+      const data = await response.json()
+      if (data.finished) {
+        toast.success('모든 라운드가 끝났습니다!')
+      } else {
+        toast.success(data.message)
+      }
+      await fetchRoom()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // 그림 그리기 게임 종료
+  const handleDrawingEnd = async () => {
+    setActionLoading(true)
+    try {
+      const response = await fetch('/api/games/drawing/round', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: id, action: 'end' }),
+      })
+
+      if (!response.ok) {
+        toast.error('게임 종료에 실패했습니다.')
+        return
+      }
+
+      toast.success('그림 그리기 게임이 종료되었습니다.')
       await fetchRoom()
     } catch {
       toast.error('오류가 발생했습니다.')
@@ -391,6 +518,86 @@ export default function RoomManagePage() {
     }
   }
 
+  // 그림 그리기 제시어 추가/수정
+  const handleDrawingSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!drawingForm.word.trim()) {
+      toast.error('제시어를 입력해주세요.')
+      return
+    }
+
+    setActionLoading(true)
+    try {
+      const url = editingWordId
+        ? `/api/games/drawing/${editingWordId}`
+        : '/api/games/drawing'
+      const method = editingWordId ? 'PATCH' : 'POST'
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: id,
+          word: drawingForm.word.trim(),
+          hint: drawingForm.hint.trim() || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        toast.error(data.error || '저장에 실패했습니다.')
+        return
+      }
+
+      toast.success(editingWordId ? '제시어가 수정되었습니다.' : '제시어가 추가되었습니다.')
+      setShowDrawingModal(false)
+      resetDrawingForm()
+      await fetchDrawingWords()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const resetDrawingForm = () => {
+    setDrawingForm({
+      word: '',
+      hint: '',
+    })
+    setEditingWordId(null)
+  }
+
+  const handleEditWord = (word: DrawingWord) => {
+    setDrawingForm({
+      word: word.word,
+      hint: word.hint || '',
+    })
+    setEditingWordId(word.id)
+    setShowDrawingModal(true)
+  }
+
+  const handleDeleteWord = async (wordId: string) => {
+    if (!confirm('이 제시어를 삭제하시겠습니까?')) return
+
+    try {
+      const response = await fetch(`/api/games/drawing/${wordId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        toast.error('삭제에 실패했습니다.')
+        return
+      }
+
+      toast.success('제시어가 삭제되었습니다.')
+      await fetchDrawingWords()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -405,6 +612,7 @@ export default function RoomManagePage() {
 
   const activeParticipants = participants.filter(p => p.is_active)
   const isQuizGame = room.game_type === 'quiz'
+  const isDrawingGame = room.game_type === 'drawing'
   const currentQuestion = room.current_question_index
     ? questions.find(q => q.order_num === room.current_question_index)
     : null
@@ -533,6 +741,11 @@ export default function RoomManagePage() {
               {isQuizGame && questions.length === 0 && room.status === 'waiting' && (
                 <p className="text-sm text-amber-600 text-center">
                   퀴즈 문제를 먼저 추가해주세요
+                </p>
+              )}
+              {isDrawingGame && drawingWords.length === 0 && room.status === 'waiting' && (
+                <p className="text-sm text-amber-600 text-center">
+                  제시어를 먼저 추가해주세요
                 </p>
               )}
               <hr />
@@ -667,6 +880,121 @@ export default function RoomManagePage() {
                     ))}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 그림 그리기 게임: 제시어 목록 */}
+          {isDrawingGame && room.status !== 'in_progress' && (
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <CardTitle>제시어 목록</CardTitle>
+                    <CardDescription>총 {drawingWords.length}개의 제시어</CardDescription>
+                  </div>
+                  {room.status === 'waiting' && (
+                    <Button onClick={() => { resetDrawingForm(); setShowDrawingModal(true); }}>
+                      + 제시어 추가
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {drawingWords.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>제시어가 없습니다.</p>
+                    {room.status === 'waiting' && (
+                      <Button
+                        className="mt-4"
+                        variant="outline"
+                        onClick={() => { resetDrawingForm(); setShowDrawingModal(true); }}
+                      >
+                        첫 번째 제시어 추가하기
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {drawingWords.map((word) => (
+                      <div
+                        key={word.id}
+                        className="p-4 border rounded-lg flex justify-between items-center"
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-muted-foreground">
+                              #{word.order_num}
+                            </span>
+                            <span className="font-medium text-lg">{word.word}</span>
+                          </div>
+                          {word.hint && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                              힌트: {word.hint}
+                            </p>
+                          )}
+                        </div>
+                        {room.status === 'waiting' && (
+                          <div className="flex gap-2 ml-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditWord(word)}
+                            >
+                              수정
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => handleDeleteWord(word.id)}
+                            >
+                              삭제
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 그림 그리기 게임: 진행 상태 */}
+          {isDrawingGame && room.status === 'in_progress' && (
+            <Card className="md:col-span-2 border-2 border-primary">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <span className="text-2xl">🎨</span>
+                  게임 진행 중
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="text-center py-4">
+                  <p className="text-lg">라운드 진행 중입니다!</p>
+                  <p className="text-muted-foreground mt-2">
+                    학생들이 그림을 그리고 정답을 맞추고 있습니다.
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    className="flex-1"
+                    variant="outline"
+                    onClick={handleDrawingNext}
+                    disabled={actionLoading}
+                  >
+                    다음 라운드
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    variant="destructive"
+                    onClick={() => handleStatusChange('finished')}
+                    disabled={actionLoading}
+                  >
+                    게임 종료
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -876,6 +1204,60 @@ export default function RoomManagePage() {
                     disabled={actionLoading}
                   >
                     {actionLoading ? '저장 중...' : editingQuestionId ? '수정' : '추가'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 그림 그리기 제시어 추가/수정 모달 */}
+      {showDrawingModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <h2 className="text-xl font-bold mb-4">
+                {editingWordId ? '제시어 수정' : '새 제시어 추가'}
+              </h2>
+              <form onSubmit={handleDrawingSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">제시어</label>
+                  <Input
+                    value={drawingForm.word}
+                    onChange={(e) => setDrawingForm({ ...drawingForm, word: e.target.value })}
+                    placeholder="예: 사과, 강아지, 비행기"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">힌트 (선택사항)</label>
+                  <Input
+                    value={drawingForm.hint}
+                    onChange={(e) => setDrawingForm({ ...drawingForm, hint: e.target.value })}
+                    placeholder="예: 빨간색 과일"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    힌트는 그리는 사람에게만 표시됩니다
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => { setShowDrawingModal(false); resetDrawingForm(); }}
+                  >
+                    취소
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-1"
+                    disabled={actionLoading}
+                  >
+                    {actionLoading ? '저장 중...' : editingWordId ? '수정' : '추가'}
                   </Button>
                 </div>
               </form>
