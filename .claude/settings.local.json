@@ -31,7 +31,8 @@
       "Bash(ls:*)",
       "mcp__supabase__list_projects",
       "mcp__supabase__get_logs",
-      "mcp__supabase__get_project"
+      "mcp__supabase__get_project",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: 강사 Custom JWT 인증 + 게임 방 관리 시스템 구현\n\n강사 인증 시스템 변경:\n- Supabase Auth에서 Custom JWT로 마이그레이션\n- instructor_profiles → instructor_users 테이블 변경\n- 강사 JWT 라이브러리 (instructor-jwt.ts)\n- 강사 인증 API (register, login, logout, me)\n\n게임 방 관리 기능:\n- 게임 방 CRUD API (/api/games/rooms)\n- 강사 대시보드에 방 생성 모달 추가\n- 게임 방 관리 페이지 (/room/[id])\n- 방 코드 자동 생성 (DB 트리거)\n- 게임 상태 관리 (대기중/진행중/종료)\n\n기타:\n- database-schema.sql 업데이트\n- 관리자 API instructor_users 테이블 사용으로 변경\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []

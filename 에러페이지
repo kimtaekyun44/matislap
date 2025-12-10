@@ -1,28 +1,35 @@
-c:\project\matislap>npm run dev
-
-> metislap@0.1.0 dev
-> next dev
-
-  ▲ Next.js 14.2.5
-  - Local:        http://localhost:3000
-  - Environments: .env.local
-
- ✓ Starting...
- ✓ Ready in 1736ms
- ✓ Compiled /src/middleware in 284ms (159 modules)
- ○ Compiling / ...
- ✓ Compiled / in 1122ms (502 modules)
- GET / 200 in 2903ms
-[Error: UNKNOWN: unknown error, open 'c:\project\matislap\.next\static\chunks\app\layout.js'] {
-  errno: -4094,
-  code: 'UNKNOWN',
-  syscall: 'open',
-  path: 'c:\\project\\matislap\\.next\\static\\chunks\\app\\layout.js'
-}
-[Error: UNKNOWN: unknown error, open 'c:\project\matislap\.next\static\chunks\app\layout.js'] {
-  errno: -4094,
-  code: 'UNKNOWN',
-  syscall: 'open',
-  path: 'c:\\project\\matislap\\.next\\static\\chunks\\app\\layout.js'
-}
-
+GET /api/games/rooms/f0caed8c-7be6-426e-bafd-3a6751416dd2/participants 200 in 208ms
+퀴즈 생성 API 오류: TypeError: (0 , _lib_supabase_server__WEBPACK_IMPORTED_MODULE_1__.createClient) is not a function
+    at POST (webpack-internal:///(rsc)/./src/app/api/games/quiz/route.ts:89:98)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async c:\project\matislap\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:55038
+    at async ek.execute (c:\project\matislap\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:45808)
+    at async ek.handle (c:\project\matislap\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:56292)
+    at async doRender (c:\project\matislap\node_modules\next\dist\server\base-server.js:1377:42)
+    at async cacheEntry.responseCache.get.routeKind (c:\project\matislap\node_modules\next\dist\server\base-server.js:1599:28)
+    at async DevServer.renderToResponseWithComponentsImpl (c:\project\matislap\node_modules\next\dist\server\base-server.js:1507:28)
+    at async DevServer.renderPageComponent (c:\project\matislap\node_modules\next\dist\server\base-server.js:1931:24)
+    at async DevServer.renderToResponseImpl (c:\project\matislap\node_modules\next\dist\server\base-server.js:1969:32)
+    at async DevServer.pipeImpl (c:\project\matislap\node_modules\next\dist\server\base-server.js:920:25)
+    at async NextNodeServer.handleCatchallRenderRequest (c:\project\matislap\node_modules\next\dist\server\next-server.js:272:17)
+    at async DevServer.handleRequestImpl (c:\project\matislap\node_modules\next\dist\server\base-server.js:816:17)
+    at async c:\project\matislap\node_modules\next\dist\server\dev\next-dev-server.js:339:20
+    at async Span.traceAsyncFn (c:\project\matislap\node_modules\next\dist\trace\trace.js:154:20)
+    at async DevServer.handleRequest (c:\project\matislap\node_modules\next\dist\server\dev\next-dev-server.js:336:24)
+    at async invokeRender (c:\project\matislap\node_modules\next\dist\server\lib\router-server.js:174:21)
+    at async handleRequest (c:\project\matislap\node_modules\next\dist\server\lib\router-server.js:353:24)
+    at async requestHandlerImpl (c:\project\matislap\node_modules\next\dist\server\lib\router-server.js:377:13)
+    at async Server.requestListener (c:\project\matislap\node_modules\next\dist\server\lib\start-server.js:141:13)
+ POST /api/games/quiz 500 in 68ms
+ GET /api/games/join?code=B2E64E 200 in 295ms
+ GET /api/games/rooms/f0caed8c-7be6-426e-bafd-3a6751416dd2/participants 200 in 206ms
+ GET /api/games/join?code=B2E64E 200 in 144ms
+ GET /api/games/join?code=B2E64E 200 in 150ms
+ GET /api/games/rooms/f0caed8c-7be6-426e-bafd-3a6751416dd2/participants 200 in 229ms
+ GET /api/games/join?code=B2E64E 200 in 132ms
+ GET /api/games/rooms/f0caed8c-7be6-426e-bafd-3a6751416dd2/participants 200 in 195ms
+ GET /api/games/join?code=B2E64E 200 in 139ms
+ GET /api/games/rooms/f0caed8c-7be6-426e-bafd-3a6751416dd2/participants 200 in 232ms
+ GET /api/games/join?code=B2E64E 200 in 124ms
+ GET /api/games/rooms/f0caed8c-7be6-426e-bafd-3a6751416dd2/participants 200 in 241ms
+ GET /api/games/join?code=B2E64E 200 in 108ms
