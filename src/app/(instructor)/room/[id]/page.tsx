@@ -187,7 +187,7 @@ export default function RoomManagePage() {
 
   const fetchRoom = async () => {
     try {
-      const response = await fetch(`/api/games/rooms/${id}`)
+      const response = await apiFetch(`/api/games/rooms/${id}`)
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -211,7 +211,7 @@ export default function RoomManagePage() {
 
   const fetchParticipants = async () => {
     try {
-      const response = await fetch(`/api/games/rooms/${id}/participants`)
+      const response = await apiFetch(`/api/games/rooms/${id}/participants`)
       if (response.ok) {
         const data = await response.json()
         setParticipants(data.participants || [])
@@ -223,7 +223,7 @@ export default function RoomManagePage() {
 
   const fetchQuestions = async () => {
     try {
-      const response = await fetch(`/api/games/quiz?room_id=${id}`)
+      const response = await apiFetch(`/api/games/quiz?room_id=${id}`)
       if (response.ok) {
         const data = await response.json()
         setQuestions(data.questions || [])
@@ -235,7 +235,7 @@ export default function RoomManagePage() {
 
   const fetchQuizProgress = async () => {
     try {
-      const response = await fetch(`/api/games/quiz/status?room_id=${id}`)
+      const response = await apiFetch(`/api/games/quiz/status?room_id=${id}`)
       if (response.ok) {
         const data = await response.json()
         setQuizProgress({
@@ -251,7 +251,7 @@ export default function RoomManagePage() {
 
   const fetchDrawingWords = async () => {
     try {
-      const response = await fetch(`/api/games/drawing?room_id=${id}`)
+      const response = await apiFetch(`/api/games/drawing?room_id=${id}`)
       if (response.ok) {
         const data = await response.json()
         setDrawingWords(data.words || [])
@@ -263,12 +263,12 @@ export default function RoomManagePage() {
 
   const fetchDrawingRoundStatus = async () => {
     try {
-      const response = await fetch(`/api/games/drawing/round?room_id=${id}`)
+      const response = await apiFetch(`/api/games/drawing/round?room_id=${id}`)
       if (response.ok) {
         const data = await response.json()
         if (data.current_round) {
           // 그림 데이터도 가져오기
-          const drawResponse = await fetch(`/api/games/drawing/draw?round_id=${data.current_round.id}`)
+          const drawResponse = await apiFetch(`/api/games/drawing/draw?round_id=${data.current_round.id}`)
           let drawingData = null
           if (drawResponse.ok) {
             const drawData = await drawResponse.json()
@@ -293,7 +293,7 @@ export default function RoomManagePage() {
   // 사다리 게임 함수들
   const fetchLadderItems = async () => {
     try {
-      const response = await fetch(`/api/games/ladder?room_id=${id}`)
+      const response = await apiFetch(`/api/games/ladder?room_id=${id}`)
       if (response.ok) {
         const data = await response.json()
         setLadderItems(data.items || [])
@@ -305,7 +305,7 @@ export default function RoomManagePage() {
 
   const fetchLadderGame = async () => {
     try {
-      const response = await fetch(`/api/games/ladder/game?room_id=${id}`)
+      const response = await apiFetch(`/api/games/ladder/game?room_id=${id}`)
       if (response.ok) {
         const data = await response.json()
         setLadderGame(data)
@@ -407,7 +407,7 @@ export default function RoomManagePage() {
         : '/api/games/ladder'
       const method = editingItemId ? 'PATCH' : 'POST'
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -448,7 +448,7 @@ export default function RoomManagePage() {
     if (!confirm('이 결과 항목을 삭제하시겠습니까?')) return
 
     try {
-      const response = await fetch(`/api/games/ladder/${itemId}`, {
+      const response = await apiFetch(`/api/games/ladder/${itemId}`, {
         method: 'DELETE',
       })
 
@@ -508,7 +508,7 @@ export default function RoomManagePage() {
     setActionLoading(true)
 
     try {
-      const response = await fetch(`/api/games/rooms/${id}`, {
+      const response = await apiFetch(`/api/games/rooms/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -688,7 +688,7 @@ export default function RoomManagePage() {
     setActionLoading(true)
 
     try {
-      const response = await fetch(`/api/games/rooms/${id}`, {
+      const response = await apiFetch(`/api/games/rooms/${id}`, {
         method: 'DELETE',
       })
 
@@ -760,7 +760,7 @@ export default function RoomManagePage() {
 
       let response
       if (editingQuestionId) {
-        response = await fetch(`/api/games/quiz/${editingQuestionId}`, {
+        response = await apiFetch(`/api/games/quiz/${editingQuestionId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -821,7 +821,7 @@ export default function RoomManagePage() {
     if (!confirm('이 문제를 삭제하시겠습니까?')) return
 
     try {
-      const response = await fetch(`/api/games/quiz/${questionId}`, {
+      const response = await apiFetch(`/api/games/quiz/${questionId}`, {
         method: 'DELETE',
       })
 
@@ -853,7 +853,7 @@ export default function RoomManagePage() {
         : '/api/games/drawing'
       const method = editingWordId ? 'PATCH' : 'POST'
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -901,7 +901,7 @@ export default function RoomManagePage() {
     if (!confirm('이 제시어를 삭제하시겠습니까?')) return
 
     try {
-      const response = await fetch(`/api/games/drawing/${wordId}`, {
+      const response = await apiFetch(`/api/games/drawing/${wordId}`, {
         method: 'DELETE',
       })
 
