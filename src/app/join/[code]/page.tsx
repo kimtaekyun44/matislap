@@ -21,9 +21,7 @@ interface RoomInfo {
 const GAME_TYPES: Record<string, string> = {
   quiz: '퀴즈 게임',
   drawing: '그림 그리기',
-  word_chain: '단어 연상',
-  speed_quiz: '스피드 퀴즈',
-  voting: '투표 게임',
+  ladder: '사다리 게임',
 }
 
 export default function JoinRoomPage() {
@@ -109,27 +107,27 @@ export default function JoinRoomPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800">
-        <div className="text-lg">방 정보 확인 중...</div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800 px-4">
+        <div className="text-base">방 정보 확인 중...</div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800 p-4">
-        <Card className="w-full max-w-md text-center">
-          <CardHeader>
-            <div className="text-6xl mb-4">😢</div>
-            <CardTitle className="text-xl text-red-600">참여할 수 없습니다</CardTitle>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800 px-4">
+        <Card className="w-full max-w-sm text-center">
+          <CardHeader className="pb-2">
+            <div className="text-5xl mb-2">😢</div>
+            <CardTitle className="text-lg text-red-600">참여할 수 없습니다</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">{error}</p>
+            <p className="text-sm text-muted-foreground">{error}</p>
           </CardContent>
-          <CardFooter className="flex flex-col gap-2">
+          <CardFooter>
             <Link href="/" className="w-full">
               <Button variant="outline" className="w-full">
-                메인으로 돌아가기
+                메인으로
               </Button>
             </Link>
           </CardFooter>
@@ -143,56 +141,53 @@ export default function JoinRoomPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="text-4xl mb-2">🎮</div>
-          <CardTitle className="text-2xl">{room.room_name}</CardTitle>
-          <CardDescription>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800 px-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="text-center pb-2">
+          <div className="text-3xl mb-1">🎮</div>
+          <CardTitle className="text-xl">{room.room_name}</CardTitle>
+          <CardDescription className="text-sm">
             {GAME_TYPES[room.game_type] || room.game_type}
-            <br />
-            <span className="text-xs">
-              현재 {room.participant_count}/{room.max_participants}명 참여 중
-            </span>
+            <span className="mx-2">•</span>
+            <span>{room.participant_count}/{room.max_participants}명</span>
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleJoin}>
-          <CardContent className="space-y-4">
-            <div className="p-4 bg-muted rounded-lg text-center">
-              <p className="text-sm text-muted-foreground">방 코드</p>
-              <p className="text-2xl font-mono font-bold">{room.room_code}</p>
+          <CardContent className="space-y-3">
+            <div className="p-3 bg-muted rounded-lg text-center">
+              <p className="text-xs text-muted-foreground">방 코드</p>
+              <p className="text-xl font-mono font-bold">{room.room_code}</p>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-1">
               <label className="text-sm font-medium">닉네임</label>
               <Input
-                placeholder="게임에서 사용할 닉네임"
+                placeholder="닉네임을 입력하세요"
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
                 maxLength={20}
                 disabled={joining}
                 autoFocus
+                className="text-base"
               />
-              <p className="text-xs text-muted-foreground">2~20자 사이로 입력해주세요</p>
             </div>
             {room.status === 'in_progress' && (
-              <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                  게임이 이미 진행 중입니다. 참여하면 중간부터 시작됩니다.
+              <div className="p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                  게임이 진행 중입니다. 중간부터 참여합니다.
                 </p>
               </div>
             )}
           </CardContent>
-          <CardFooter className="flex flex-col gap-2">
+          <CardFooter className="flex flex-col gap-2 pt-2">
             <Button
               type="submit"
               className="w-full"
-              size="lg"
               disabled={joining}
             >
-              {joining ? '참여 중...' : '게임 참여하기'}
+              {joining ? '참여 중...' : '참여하기'}
             </Button>
-            <Link href="/" className="text-sm text-muted-foreground hover:underline">
-              ← 메인으로 돌아가기
+            <Link href="/" className="text-xs text-muted-foreground hover:underline">
+              ← 메인으로
             </Link>
           </CardFooter>
         </form>

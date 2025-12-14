@@ -19,9 +19,7 @@ export enum ApprovalStatus {
 export enum GameType {
   QUIZ = 'quiz',
   DRAWING = 'drawing',
-  WORD_CHAIN = 'word_chain',
-  SPEED_QUIZ = 'speed_quiz',
-  VOTING = 'voting'
+  LADDER = 'ladder'
 }
 
 export enum RoomStatus {
@@ -328,34 +326,38 @@ export interface DrawingGameConfig {
   maxPoints: number;
 }
 
-// Word Chain Game
-export interface WordChainConfig {
-  category?: string;
-  timeLimit: number;
-  minLength?: number;
-  maxLength?: number;
-  allowDuplicates?: boolean;
-}
-
-// Voting Game
-export interface VotingOption {
+// Ladder Game
+export interface LadderItem {
   id: string;
-  text: string;
-  imageUrl?: string;
+  room_id: string;
+  item_text: string;
+  position: number;
+  created_at: string;
 }
 
-export interface VotingQuestion {
+export interface LadderSelection {
   id: string;
-  question: string;
-  options: VotingOption[];
-  multipleChoice?: boolean;
-  anonymous?: boolean;
+  room_id: string;
+  participant_id: string;
+  start_position: number;
+  result_position?: number;
+  is_revealed: boolean;
+  selected_at: string;
+  game_participants?: { nickname: string };
 }
 
-export interface VotingGameConfig {
-  questions: VotingQuestion[];
-  showResults?: 'immediate' | 'after_voting' | 'end';
-  allowChangeVote?: boolean;
+export interface LadderData {
+  id: string;
+  room_id: string;
+  lines_count: number;
+  horizontal_lines: { row: number; fromCol: number }[];
+  created_at: string;
+}
+
+export interface LadderGameState {
+  ladder_data: LadderData | null;
+  selections: LadderSelection[];
+  items: LadderItem[];
 }
 
 // ========================================

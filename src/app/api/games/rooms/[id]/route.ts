@@ -93,6 +93,11 @@ export async function PATCH(
       filteredUpdates.started_at = new Date().toISOString()
     } else if (filteredUpdates.status === 'finished') {
       filteredUpdates.ended_at = new Date().toISOString()
+    } else if (filteredUpdates.status === 'waiting') {
+      // 대기 상태로 되돌릴 때 게임 관련 데이터 초기화
+      filteredUpdates.current_question_index = null
+      filteredUpdates.started_at = null
+      filteredUpdates.ended_at = null
     }
 
     const { data: room, error } = await supabaseAdmin

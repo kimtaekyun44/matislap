@@ -82,8 +82,7 @@ export async function GET(request: NextRequest) {
       current_word: currentWord,
       drawer
     })
-  } catch (error) {
-    console.error('라운드 조회 API 오류:', error)
+  } catch {
     return NextResponse.json(
       { error: '서버 오류가 발생했습니다.' },
       { status: 500 }
@@ -103,11 +102,19 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { room_id, action } = body // action: 'start', 'next', 'end'
+    const { room_id, action, drawer_id } = body // action: 'start', 'next', 'end'
 
     if (!room_id || !action) {
       return NextResponse.json(
         { error: '필수 필드가 누락되었습니다.' },
+        { status: 400 }
+      )
+    }
+
+    // start, next 액션은 drawer_id 필수
+    if ((action === 'start' || action === 'next') && !drawer_id) {
+      return NextResponse.json(
+        { error: '그림 그릴 사람을 선택해주세요.' },
         { status: 400 }
       )
     }
@@ -176,14 +183,19 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // 첫 번째 라운드 생성
-      const firstDrawerIndex = 0
+      // 기존 라운드 정리 (중복 방지)
+      await supabaseAdmin
+        .from('drawing_rounds')
+        .delete()
+        .eq('room_id', room_id)
+
+      // 첫 번째 라운드 생성 - 강사가 선택한 drawer_id 사용
       const { data: newRound, error: roundError } = await supabaseAdmin
         .from('drawing_rounds')
         .insert({
           room_id,
           word_id: words[0].id,
-          drawer_id: participants[firstDrawerIndex].id,
+          drawer_id: drawer_id,
           round_num: 1,
           status: 'drawing',
           started_at: new Date().toISOString()
@@ -255,14 +267,13 @@ export async function POST(request: NextRequest) {
         .eq('room_id', room_id)
         .eq('round_num', currentIndex)
 
-      // 다음 라운드 생성 (다음 참가자가 그림 그리기)
-      const nextDrawerIndex = nextIndex % participants.length
+      // 다음 라운드 생성 - 강사가 선택한 drawer_id 사용
       const { data: newRound, error: roundError } = await supabaseAdmin
         .from('drawing_rounds')
         .insert({
           room_id,
           word_id: words[nextIndex - 1].id,
-          drawer_id: participants[nextDrawerIndex].id,
+          drawer_id: drawer_id,
           round_num: nextIndex,
           status: 'drawing',
           started_at: new Date().toISOString()

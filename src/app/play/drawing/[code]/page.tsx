@@ -170,7 +170,7 @@ export default function DrawingPlayPage() {
       const roomData = await fetchRoomInfo()
       setLoading(false)
 
-      if (roomData?.game_type === 'drawing' && roomData.status === 'in_progress') {
+      if (roomData?.game_type === 'drawing') {
         await fetchRoundInfo(roomData.id)
       }
     }
@@ -180,39 +180,42 @@ export default function DrawingPlayPage() {
 
   // 폴링
   useEffect(() => {
-    if (!participant || !room) return
+    if (!participant) return
 
     const pollInterval = setInterval(async () => {
       const updatedRoom = await fetchRoomInfo()
 
-      if (updatedRoom?.game_type === 'drawing' && updatedRoom.status === 'in_progress') {
-        const data = await fetchRoundInfo(updatedRoom.id)
+      if (updatedRoom?.game_type === 'drawing') {
+        // 게임이 진행 중이면 라운드 정보 가져오기
+        if (updatedRoom.status === 'in_progress') {
+          const data = await fetchRoundInfo(updatedRoom.id)
 
-        // 라운드가 변경되면 상태 리셋
-        if (data?.current_round?.id !== currentRound?.id) {
-          setGuessText('')
-          setGuessResult(null)
-          setHasGuessedCorrectly(false)
-          setDrawingData('')
-          const canvas = canvasRef.current
-          if (canvas) {
-            const ctx = canvas.getContext('2d')
-            if (ctx) {
-              ctx.fillStyle = 'white'
-              ctx.fillRect(0, 0, canvas.width, canvas.height)
+          // 라운드가 변경되면 상태 리셋
+          if (data?.current_round?.id !== currentRound?.id) {
+            setGuessText('')
+            setGuessResult(null)
+            setHasGuessedCorrectly(false)
+            setDrawingData('')
+            const canvas = canvasRef.current
+            if (canvas) {
+              const ctx = canvas.getContext('2d')
+              if (ctx) {
+                ctx.fillStyle = 'white'
+                ctx.fillRect(0, 0, canvas.width, canvas.height)
+              }
             }
           }
-        }
 
-        // 내가 그리는 사람이 아니면 그림 데이터 가져오기
-        if (data?.current_round && data.drawer?.id !== participant.id) {
-          await fetchDrawingData(data.current_round.id)
+          // 내가 그리는 사람이 아니면 그림 데이터 가져오기
+          if (data?.current_round && data.drawer?.id !== participant.id) {
+            await fetchDrawingData(data.current_round.id)
+          }
         }
       }
     }, 2000)
 
     return () => clearInterval(pollInterval)
-  }, [participant, room, currentRound?.id, fetchRoomInfo, fetchRoundInfo, fetchDrawingData])
+  }, [participant, currentRound?.id, fetchRoomInfo, fetchRoundInfo, fetchDrawingData])
 
   // 캔버스 초기화
   useEffect(() => {
@@ -231,20 +234,68 @@ export default function DrawingPlayPage() {
     }
   }, [])
 
-  // 그리기 핸들러
+  // 좌표 계산 헬퍼 함수
+  const getCanvasCoordinates = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
+    const rect = canvas.getBoundingClientRect()
+    const scaleX = canvas.width / rect.width
+    const scaleY = canvas.height / rect.height
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
+    }
+  }
+
+  // 그리기 핸들러 - 마우스
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isMyTurnToDraw || currentRound?.status !== 'drawing') return
+
+    const canvas = canvasRef.current
+    if (canvas) {
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        const { x, y } = getCanvasCoordinates(canvas, e.clientX, e.clientY)
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+      }
+    }
+
     setIsDrawing(true)
-    draw(e)
+  }
+
+  // 그리기 핸들러 - 터치
+  const startDrawingTouch = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isMyTurnToDraw || currentRound?.status !== 'drawing') return
+    e.preventDefault()
+
+    const canvas = canvasRef.current
+    if (canvas && e.touches.length > 0) {
+      const touch = e.touches[0]
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        const { x, y } = getCanvasCoordinates(canvas, touch.clientX, touch.clientY)
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+      }
+    }
+
+    setIsDrawing(true)
   }
 
   const stopDrawing = async () => {
     if (!isDrawing) return
     setIsDrawing(false)
 
-    // 그림 데이터 저장
     const canvas = canvasRef.current
-    if (canvas && currentRound && participant) {
+    if (!canvas) return
+
+    // 경로 종료
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.beginPath()
+    }
+
+    // 그림 데이터 저장
+    if (currentRound && participant) {
       const data = canvas.toDataURL('image/png')
       try {
         await fetch('/api/games/drawing/draw', {
@@ -262,6 +313,12 @@ export default function DrawingPlayPage() {
     }
   }
 
+  const stopDrawingTouch = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault()
+    stopDrawing()
+  }
+
+  // 그리기 - 마우스
   const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawing || !isMyTurnToDraw) return
 
@@ -271,9 +328,29 @@ export default function DrawingPlayPage() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+    const { x, y } = getCanvasCoordinates(canvas, e.clientX, e.clientY)
+
+    ctx.strokeStyle = brushColor
+    ctx.lineWidth = brushSize
+    ctx.lineTo(x, y)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+  }
+
+  // 그리기 - 터치
+  const drawTouch = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || !isMyTurnToDraw) return
+    e.preventDefault()
+
+    const canvas = canvasRef.current
+    if (!canvas || e.touches.length === 0) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const touch = e.touches[0]
+    const { x, y } = getCanvasCoordinates(canvas, touch.clientX, touch.clientY)
 
     ctx.strokeStyle = brushColor
     ctx.lineWidth = brushSize
@@ -348,7 +425,7 @@ export default function DrawingPlayPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100">
-        <div className="text-lg">로딩 중...</div>
+        <div className="text-base">로딩 중...</div>
       </div>
     )
   }
@@ -359,41 +436,43 @@ export default function DrawingPlayPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800">
-      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <Link href="/" className="text-xl font-bold text-primary">
-            MetisLap
-          </Link>
-          <div className="flex items-center gap-4">
-            <span className="text-sm">
-              <span className="font-medium">{participant.nickname}</span>
-              <span className="ml-2 text-muted-foreground">{totalScore}점</span>
-            </span>
-          </div>
+      <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm sticky top-0 z-10">
+        <div className="container mx-auto px-3 py-2 flex justify-between items-center max-w-lg">
+          <span className="text-base font-bold text-primary">🎨 {room.room_name}</span>
+          <span className="text-sm">
+            <span className="font-medium">{participant.nickname}</span>
+            <span className="ml-1 text-muted-foreground">{totalScore}점</span>
+          </span>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <span className="text-2xl">🎨</span>
-              {room.room_name}
-            </CardTitle>
-            <CardDescription>
-              그림 그리기 게임 | 라운드 {currentRound?.round_num || 0} / {totalRounds}
-            </CardDescription>
-          </CardHeader>
-        </Card>
+      <main className="container mx-auto px-3 py-3 max-w-lg">
+        {/* 라운드 정보 */}
+        <div className="text-center text-sm text-muted-foreground mb-2">
+          라운드 {currentRound?.round_num || 0} / {totalRounds}
+        </div>
 
         {/* 대기 중 */}
         {room.status === 'waiting' && (
-          <Card className="text-center py-12">
+          <Card className="text-center py-8">
             <CardContent>
-              <div className="text-6xl mb-4">⏳</div>
-              <h2 className="text-2xl font-bold mb-2">게임 대기 중</h2>
-              <p className="text-muted-foreground">
-                강사가 게임을 시작하면 자동으로 시작됩니다.
+              <div className="text-4xl mb-2">⏳</div>
+              <h2 className="text-lg font-bold mb-1">게임 대기 중</h2>
+              <p className="text-sm text-muted-foreground">
+                강사가 게임을 시작하면 시작됩니다
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 게임 진행 중 - 라운드 로딩 중 */}
+        {room.status === 'in_progress' && !currentRound && (
+          <Card className="text-center py-8">
+            <CardContent>
+              <div className="text-4xl mb-2">🎨</div>
+              <h2 className="text-lg font-bold mb-1">게임 로딩 중...</h2>
+              <p className="text-sm text-muted-foreground">
+                라운드 정보를 불러오는 중입니다
               </p>
             </CardContent>
           </Card>
@@ -401,61 +480,72 @@ export default function DrawingPlayPage() {
 
         {/* 게임 진행 중 */}
         {room.status === 'in_progress' && currentRound && (
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="space-y-3">
             {/* 캔버스 영역 */}
             <Card>
-              <CardHeader>
-                <CardTitle>
-                  {isMyTurnToDraw ? '당신이 그립니다!' : `${drawer?.nickname}님이 그리는 중...`}
+              <CardHeader className="pb-2 pt-3">
+                <CardTitle className="text-base text-center">
+                  {isMyTurnToDraw ? '당신이 그립니다!' : `${drawer?.nickname}님이 그리는 중`}
                 </CardTitle>
                 {isMyTurnToDraw && currentWord && (
-                  <CardDescription className="text-lg font-bold text-primary">
-                    제시어: {currentWord.word}
+                  <div className="text-center">
+                    <span className="text-lg font-bold text-primary">제시어: {currentWord.word}</span>
                     {currentWord.hint && (
-                      <span className="text-sm font-normal text-muted-foreground ml-2">
-                        (힌트: {currentWord.hint})
-                      </span>
+                      <span className="text-xs text-muted-foreground ml-1">(힌트: {currentWord.hint})</span>
                     )}
-                  </CardDescription>
+                  </div>
                 )}
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-3 pb-3">
                 <canvas
                   ref={canvasRef}
-                  className="border rounded-lg cursor-crosshair w-full max-w-[400px] mx-auto"
+                  className="border rounded-lg cursor-crosshair w-full select-none"
                   style={{ touchAction: 'none' }}
                   onMouseDown={startDrawing}
                   onMouseUp={stopDrawing}
                   onMouseOut={stopDrawing}
                   onMouseMove={draw}
+                  onTouchStart={startDrawingTouch}
+                  onTouchEnd={stopDrawingTouch}
+                  onTouchCancel={stopDrawingTouch}
+                  onTouchMove={drawTouch}
+                  onDoubleClick={(e) => e.preventDefault()}
                 />
 
                 {/* 그리기 도구 (내 차례일 때만) */}
                 {isMyTurnToDraw && (
-                  <div className="mt-4 flex flex-wrap items-center gap-4 justify-center">
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm">색상:</label>
-                      <input
-                        type="color"
-                        value={brushColor}
-                        onChange={(e) => setBrushColor(e.target.value)}
-                        className="w-10 h-10 rounded cursor-pointer"
-                      />
+                  <div className="mt-3 space-y-2">
+                    {/* 색상 팔레트 */}
+                    <div className="flex flex-wrap items-center gap-1.5 justify-center">
+                      {['#000000', '#ffffff', '#ff0000', '#ff9800', '#ffeb3b', '#4caf50', '#2196f3', '#9c27b0', '#795548', '#607d8b'].map((color) => (
+                        <button
+                          key={color}
+                          onClick={() => setBrushColor(color)}
+                          className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                            brushColor === color ? 'border-primary scale-110' : 'border-gray-300'
+                          }`}
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-sm">굵기:</label>
-                      <input
-                        type="range"
-                        min="1"
-                        max="20"
-                        value={brushSize}
-                        onChange={(e) => setBrushSize(Number(e.target.value))}
-                        className="w-24"
-                      />
+                    {/* 굵기 및 지우기 */}
+                    <div className="flex items-center justify-center gap-3">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs">굵기</span>
+                        <input
+                          type="range"
+                          min="1"
+                          max="20"
+                          value={brushSize}
+                          onChange={(e) => setBrushSize(Number(e.target.value))}
+                          className="w-20"
+                        />
+                        <span className="text-xs w-4">{brushSize}</span>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={clearCanvas}>
+                        지우기
+                      </Button>
                     </div>
-                    <Button variant="outline" size="sm" onClick={clearCanvas}>
-                      지우기
-                    </Button>
                   </div>
                 )}
               </CardContent>
@@ -464,33 +554,26 @@ export default function DrawingPlayPage() {
             {/* 추측 영역 (내 차례가 아닐 때만) */}
             {!isMyTurnToDraw && (
               <Card>
-                <CardHeader>
-                  <CardTitle>정답 맞추기</CardTitle>
-                  <CardDescription>그림을 보고 정답을 입력하세요!</CardDescription>
-                </CardHeader>
-                <CardContent>
+                <CardContent className="py-3">
                   {hasGuessedCorrectly ? (
-                    <div className="text-center py-8">
-                      <div className="text-6xl mb-4">🎉</div>
-                      <h3 className="text-xl font-bold text-green-600">정답을 맞추셨습니다!</h3>
-                      <p className="text-muted-foreground mt-2">
-                        다음 라운드를 기다려주세요.
-                      </p>
+                    <div className="text-center py-4">
+                      <div className="text-3xl mb-2">🎉</div>
+                      <h3 className="text-base font-bold text-green-600">정답!</h3>
+                      <p className="text-xs text-muted-foreground">다음 라운드를 기다려주세요</p>
                     </div>
                   ) : (
-                    <form onSubmit={handleSubmitGuess} className="space-y-4">
+                    <form onSubmit={handleSubmitGuess} className="flex gap-2">
                       <Input
                         value={guessText}
                         onChange={(e) => setGuessText(e.target.value)}
-                        placeholder="정답을 입력하세요"
-                        autoFocus
+                        placeholder="정답 입력"
+                        className="flex-1 text-base"
                       />
                       <Button
                         type="submit"
-                        className="w-full"
                         disabled={!guessText.trim() || submittingGuess}
                       >
-                        {submittingGuess ? '제출 중...' : '제출'}
+                        {submittingGuess ? '...' : '제출'}
                       </Button>
                     </form>
                   )}
@@ -500,41 +583,26 @@ export default function DrawingPlayPage() {
 
             {/* 그리는 사람일 때의 안내 */}
             {isMyTurnToDraw && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>그리기 안내</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="p-4 bg-yellow-50 rounded-lg">
-                    <p className="text-yellow-800">
-                      <strong>제시어를 그림으로 표현하세요!</strong>
-                    </p>
-                    <p className="text-sm text-yellow-700 mt-2">
-                      다른 참가자들이 맞출 수 있도록 그려주세요.
-                      글자를 쓰면 안 됩니다!
-                    </p>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    <p>• 왼쪽 캔버스에 그림을 그리세요</p>
-                    <p>• 색상과 굵기를 조절할 수 있습니다</p>
-                    <p>• 다른 참가자가 정답을 맞추면 점수를 얻습니다</p>
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="p-3 bg-yellow-50 rounded-lg">
+                <p className="text-xs text-yellow-800 text-center">
+                  <strong>제시어를 그림으로!</strong> 글자는 쓰면 안 됩니다.
+                </p>
+              </div>
             )}
           </div>
         )}
 
         {/* 게임 종료 */}
         {room.status === 'finished' && (
-          <Card className="text-center py-12">
+          <Card className="text-center py-8">
             <CardContent>
-              <div className="text-6xl mb-4">🏆</div>
-              <h2 className="text-2xl font-bold mb-2">게임 종료!</h2>
-              <p className="text-4xl font-bold text-primary mb-4">{totalScore}점</p>
-              <p className="text-muted-foreground">
-                수고하셨습니다!
-              </p>
+              <div className="text-4xl mb-2">🏆</div>
+              <h2 className="text-lg font-bold mb-1">게임 종료!</h2>
+              <p className="text-3xl font-bold text-primary mb-2">{totalScore}점</p>
+              <p className="text-sm text-muted-foreground mb-4">수고하셨습니다!</p>
+              <Link href="/">
+                <Button>메인으로 가기</Button>
+              </Link>
             </CardContent>
           </Card>
         )}

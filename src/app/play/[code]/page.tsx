@@ -21,7 +21,6 @@ interface RoomInfo {
   room_name: string
   game_type: string
   status: string
-  current_question_index: number | null
   participant_count: number
 }
 
@@ -44,9 +43,7 @@ interface AnswerResult {
 const GAME_TYPES: Record<string, string> = {
   quiz: '퀴즈 게임',
   drawing: '그림 그리기',
-  word_chain: '단어 연상',
-  speed_quiz: '스피드 퀴즈',
-  voting: '투표 게임',
+  ladder: '사다리 게임',
 }
 
 export default function PlayPage() {
@@ -65,8 +62,8 @@ export default function PlayPage() {
   const [answering, setAnswering] = useState(false)
   const [questionStartTime, setQuestionStartTime] = useState<number>(0)
   const [totalScore, setTotalScore] = useState(0)
-  const [lastQuestionIndex, setLastQuestionIndex] = useState<number | null>(null)
   const [totalQuestions, setTotalQuestions] = useState<number>(0)
+  const [answeredCount, setAnsweredCount] = useState<number>(0) // 개인별 답변 수
   const [quizCompleted, setQuizCompleted] = useState(false) // 모든 문제 완료 여부
 
   const fetchRoomInfo = useCallback(async () => {
@@ -91,18 +88,19 @@ export default function PlayPage() {
     }
   }, [code, router])
 
-  const fetchCurrentQuestion = useCallback(async (roomId: string) => {
+  const fetchCurrentQuestion = useCallback(async (roomId: string, participantId: string) => {
     try {
-      const response = await fetch(`/api/games/quiz/status?room_id=${roomId}`)
-      if (!response.ok) return { question: null, total: 0 }
+      const response = await fetch(`/api/games/quiz/status?room_id=${roomId}&participant_id=${participantId}`)
+      if (!response.ok) return { question: null, total: 0, answered: 0 }
 
       const data = await response.json()
       return {
         question: data.current_question as QuizQuestion | null,
-        total: data.total_questions as number
+        total: data.total_questions as number,
+        answered: data.answered_count as number
       }
     } catch {
-      return { question: null, total: 0 }
+      return { question: null, total: 0, answered: 0 }
     }
   }, [])
 
@@ -132,15 +130,25 @@ export default function PlayPage() {
         return
       }
 
+      // 사다리 게임이면 전용 페이지로 리다이렉트
+      if (roomData?.game_type === 'ladder') {
+        router.replace(`/play/ladder/${code}`)
+        return
+      }
+
       setLoading(false)
 
       if (roomData?.game_type === 'quiz' && roomData.status === 'in_progress') {
-        const { question, total } = await fetchCurrentQuestion(roomData.id)
+        const { question, total, answered } = await fetchCurrentQuestion(roomData.id, participantData.id)
         setTotalQuestions(total)
+        setAnsweredCount(answered)
         if (question) {
           setCurrentQuestion(question)
           setTimeLeft(question.time_limit)
           setQuestionStartTime(Date.now())
+        } else if (answered >= total && total > 0) {
+          // 모든 문제 완료
+          setQuizCompleted(true)
         }
       }
     }
@@ -148,43 +156,38 @@ export default function PlayPage() {
     init()
   }, [code, router, fetchRoomInfo, fetchCurrentQuestion])
 
-  // 3초마다 방 상태 및 퀴즈 폴링
+  // 3초마다 방 상태 폴링 (게임 종료 감지용)
   useEffect(() => {
     if (!participant || !room) return
 
     const pollInterval = setInterval(async () => {
       const updatedRoom = await fetchRoomInfo()
 
-      if (updatedRoom?.game_type === 'quiz' && updatedRoom.status === 'in_progress') {
-        // 문제 인덱스가 변경되었는지 확인
-        if (updatedRoom.current_question_index !== lastQuestionIndex) {
-          const { question, total } = await fetchCurrentQuestion(updatedRoom.id)
-          setTotalQuestions(total)
-
-          if (question && question.order_num !== currentQuestion?.order_num) {
-            // 새 문제로 변경
-            setCurrentQuestion(question)
-            setSelectedAnswer(null)
-            setAnswerResult(null)
-            setTimeLeft(question.time_limit)
-            setQuestionStartTime(Date.now())
-            setLastQuestionIndex(updatedRoom.current_question_index)
-            setQuizCompleted(false)
-          } else if (!question && answerResult) {
-            // 문제가 없고 답변 결과가 있으면 = 마지막 문제 완료
-            setQuizCompleted(true)
-            setCurrentQuestion(null)
-          }
-        }
-      } else if (updatedRoom?.status === 'finished') {
+      if (updatedRoom?.status === 'finished') {
         // 게임 종료
         setCurrentQuestion(null)
         setQuizCompleted(false)
+      } else if (updatedRoom?.game_type === 'quiz' && updatedRoom.status === 'in_progress') {
+        // 현재 문제가 없고 퀴즈 완료 상태가 아닌 경우에만 새 문제 체크
+        if (!currentQuestion && !quizCompleted && !answerResult) {
+          const { question, total, answered } = await fetchCurrentQuestion(updatedRoom.id, participant.id)
+          setTotalQuestions(total)
+          setAnsweredCount(answered)
+
+          if (question) {
+            setCurrentQuestion(question)
+            setSelectedAnswer(null)
+            setTimeLeft(question.time_limit)
+            setQuestionStartTime(Date.now())
+          } else if (answered >= total && total > 0) {
+            setQuizCompleted(true)
+          }
+        }
       }
     }, 3000) // 3초마다 폴링
 
     return () => clearInterval(pollInterval)
-  }, [participant, room, currentQuestion, lastQuestionIndex, answerResult, fetchRoomInfo, fetchCurrentQuestion])
+  }, [participant, room, currentQuestion, quizCompleted, answerResult, fetchRoomInfo, fetchCurrentQuestion])
 
   // 타이머
   useEffect(() => {
@@ -252,14 +255,30 @@ export default function PlayPage() {
         toast.error(`오답! 정답: ${data.answer.correct_answer}`)
       }
 
-      // 마지막 문제인지 확인
-      if (currentQuestion.order_num >= totalQuestions) {
-        // 3초 후 완료 화면으로 전환
-        setTimeout(() => {
+      // 3초 후 다음 문제로 자동 진행
+      setTimeout(async () => {
+        if (!room) return
+
+        const newAnsweredCount = answeredCount + 1
+        setAnsweredCount(newAnsweredCount)
+
+        // 마지막 문제인지 확인
+        if (newAnsweredCount >= totalQuestions) {
           setQuizCompleted(true)
           setCurrentQuestion(null)
-        }, 3000)
-      }
+          setAnswerResult(null)
+        } else {
+          // 다음 문제 로드
+          const { question } = await fetchCurrentQuestion(room.id, participant.id)
+          if (question) {
+            setCurrentQuestion(question)
+            setSelectedAnswer(null)
+            setAnswerResult(null)
+            setTimeLeft(question.time_limit)
+            setQuestionStartTime(Date.now())
+          }
+        }
+      }, 2000)
     } catch {
       toast.error('오류가 발생했습니다.')
       setSelectedAnswer(null)
@@ -277,7 +296,7 @@ export default function PlayPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-blue-100 dark:from-gray-900 dark:to-gray-800">
-        <div className="text-lg">로딩 중...</div>
+        <div className="text-base">로딩 중...</div>
       </div>
     )
   }
@@ -289,70 +308,55 @@ export default function PlayPage() {
   const isQuizGame = room.game_type === 'quiz'
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 dark:from-gray-900 dark:to-gray-800 p-4">
-      <div className="container mx-auto max-w-2xl">
-        {/* 상단 정보 */}
-        <div className="flex justify-between items-center mb-6">
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 dark:from-gray-900 dark:to-gray-800">
+      {/* 상단 헤더 */}
+      <header className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-b sticky top-0 z-10">
+        <div className="container mx-auto px-3 py-2 flex justify-between items-center max-w-lg">
           <div>
-            <h1 className="text-xl font-bold">{room.room_name}</h1>
-            <p className="text-sm text-muted-foreground">
+            <h1 className="text-base font-bold">{room.room_name}</h1>
+            <p className="text-xs text-muted-foreground">
               {GAME_TYPES[room.game_type] || room.game_type}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {isQuizGame && (
               <div className="text-right">
-                <p className="text-xs text-muted-foreground">내 점수</p>
-                <p className="font-bold text-lg text-primary">{totalScore}점</p>
+                <p className="text-xs text-muted-foreground">점수</p>
+                <p className="font-bold text-base text-primary">{totalScore}점</p>
               </div>
             )}
-            <Button variant="outline" size="sm" onClick={handleLeave}>
-              나가기
-            </Button>
           </div>
         </div>
+      </header>
 
+      <div className="container mx-auto px-3 py-3 max-w-lg">
         {/* 참가자 정보 */}
-        <Card className="mb-6">
-          <CardContent className="py-4">
+        <Card className="mb-3">
+          <CardContent className="py-2 px-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-xl">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-base">
                   😊
                 </div>
-                <div>
-                  <p className="font-medium">{participant.nickname}</p>
-                  <p className="text-sm text-muted-foreground">참가자</p>
-                </div>
+                <span className="font-medium text-sm">{participant.nickname}</span>
               </div>
-              <div className="text-right">
-                <p className="text-sm text-muted-foreground">방 코드</p>
-                <p className="font-mono font-bold">{room.room_code}</p>
-              </div>
+              <span className="font-mono text-sm font-bold">{room.room_code}</span>
             </div>
           </CardContent>
         </Card>
 
         {/* 게임 상태별 UI */}
         {room.status === 'waiting' && (
-          <Card>
-            <CardHeader className="text-center">
-              <div className="text-6xl mb-4">⏳</div>
-              <CardTitle>게임 대기 중</CardTitle>
-              <CardDescription>
-                강사가 게임을 시작하면 자동으로 시작됩니다
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
-              <p className="text-muted-foreground mb-4">
-                현재 {room.participant_count}명 참여 중
+          <Card className="text-center py-8">
+            <CardContent>
+              <div className="text-4xl mb-2">⏳</div>
+              <h2 className="text-lg font-bold mb-1">게임 대기 중</h2>
+              <p className="text-sm text-muted-foreground mb-3">
+                강사가 게임을 시작하면 시작됩니다
               </p>
-              <div className="animate-pulse">
-                <div className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-100 dark:bg-yellow-900/30 rounded-full">
-                  <span className="w-2 h-2 bg-yellow-500 rounded-full animate-bounce"></span>
-                  <span className="text-sm">대기 중...</span>
-                </div>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                {room.participant_count}명 참여 중
+              </p>
             </CardContent>
           </Card>
         )}
@@ -360,7 +364,7 @@ export default function PlayPage() {
         {room.status === 'in_progress' && isQuizGame && currentQuestion && (
           <Card className="overflow-hidden">
             {/* 타이머 바 */}
-            <div className="h-2 bg-gray-200">
+            <div className="h-1.5 bg-gray-200">
               <div
                 className={`h-full transition-all duration-1000 ${
                   timeLeft > 10 ? 'bg-green-500' :
@@ -370,28 +374,27 @@ export default function PlayPage() {
               />
             </div>
 
-            <CardHeader>
+            <CardHeader className="pb-2 pt-3">
               <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-sm text-muted-foreground mb-1">
-                    문제 #{currentQuestion.order_num}
+                <div className="flex-1">
+                  <p className="text-xs text-muted-foreground">
+                    문제 {currentQuestion.order_num} / {totalQuestions}
                   </p>
-                  <CardTitle className="text-xl">{currentQuestion.question_text}</CardTitle>
+                  <CardTitle className="text-base">{currentQuestion.question_text}</CardTitle>
                 </div>
-                <div className="text-right">
-                  <p className={`text-3xl font-bold ${
+                <div className="text-right ml-2">
+                  <p className={`text-2xl font-bold ${
                     timeLeft > 10 ? 'text-green-600' :
                     timeLeft > 5 ? 'text-yellow-600' : 'text-red-600'
                   }`}>
                     {timeLeft}
                   </p>
-                  <p className="text-xs text-muted-foreground">초</p>
                 </div>
               </div>
             </CardHeader>
 
-            <CardContent>
-              <div className={`grid gap-3 ${
+            <CardContent className="px-3 pb-3">
+              <div className={`grid gap-2 ${
                 currentQuestion.question_type === 'ox' ? 'grid-cols-2' : 'grid-cols-1'
               }`}>
                 {currentQuestion.options.map((option, idx) => {
@@ -417,22 +420,22 @@ export default function PlayPage() {
                       key={idx}
                       onClick={() => handleSubmitAnswer(option)}
                       disabled={!!answerResult || answering || timeLeft === 0}
-                      className={`p-4 rounded-lg text-left transition-all ${buttonStyle} ${
+                      className={`p-3 rounded-lg text-left transition-all ${buttonStyle} ${
                         currentQuestion.question_type === 'ox' ? 'text-center' : ''
-                      } ${!answerResult && !answering && timeLeft > 0 ? 'hover:scale-[1.02]' : ''}`}
+                      } ${!answerResult && !answering && timeLeft > 0 ? 'active:scale-95' : ''}`}
                     >
                       {currentQuestion.question_type === 'ox' ? (
-                        <span className={`text-4xl font-bold ${
+                        <span className={`text-3xl font-bold ${
                           option === 'O' ? 'text-blue-600' : 'text-red-600'
                         }`}>
                           {option}
                         </span>
                       ) : (
-                        <div className="flex items-center gap-3">
-                          <span className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center font-bold">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold shrink-0">
                             {idx + 1}
                           </span>
-                          <span className="flex-1">{option}</span>
+                          <span className="flex-1 text-sm">{option}</span>
                           {answerResult && isCorrectAnswer && (
                             <span className="text-green-600">✓</span>
                           )}
@@ -448,37 +451,28 @@ export default function PlayPage() {
 
               {/* 결과 표시 */}
               {answerResult && (
-                <div className={`mt-4 p-4 rounded-lg text-center ${
+                <div className={`mt-3 p-3 rounded-lg text-center ${
                   answerResult.is_correct
                     ? 'bg-green-50 border border-green-200'
                     : 'bg-red-50 border border-red-200'
                 }`}>
-                  <p className={`text-xl font-bold ${
+                  <p className={`text-base font-bold ${
                     answerResult.is_correct ? 'text-green-600' : 'text-red-600'
                   }`}>
-                    {answerResult.is_correct ? '정답입니다!' : '오답입니다'}
+                    {answerResult.is_correct ? `정답! +${answerResult.points_earned}점` : '오답'}
                   </p>
-                  {answerResult.is_correct && (
-                    <p className="text-green-600 mt-1">+{answerResult.points_earned}점</p>
-                  )}
                   {!answerResult.is_correct && (
-                    <p className="text-muted-foreground mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       정답: {answerResult.correct_answer}
                     </p>
                   )}
-                  <p className="text-sm text-muted-foreground mt-2">
-                    다음 문제를 기다려주세요...
-                  </p>
                 </div>
               )}
 
               {/* 시간 초과 */}
               {timeLeft === 0 && !answerResult && (
-                <div className="mt-4 p-4 rounded-lg text-center bg-gray-50 border border-gray-200">
-                  <p className="text-xl font-bold text-gray-600">시간 초과!</p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    다음 문제를 기다려주세요...
-                  </p>
+                <div className="mt-3 p-3 rounded-lg text-center bg-gray-50 border border-gray-200">
+                  <p className="text-base font-bold text-gray-600">시간 초과</p>
                 </div>
               )}
             </CardContent>
@@ -486,84 +480,58 @@ export default function PlayPage() {
         )}
 
         {room.status === 'in_progress' && isQuizGame && !currentQuestion && quizCompleted && (
-          <Card>
-            <CardHeader className="text-center">
-              <div className="text-6xl mb-4">🎉</div>
-              <CardTitle>모든 문제를 마쳤습니다!</CardTitle>
-              <CardDescription>
-                수고하셨습니다. 강사가 게임을 종료할 때까지 기다려주세요.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
-              <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg">
-                <p className="text-sm text-muted-foreground">현재 점수</p>
-                <p className="text-4xl font-bold text-primary">{totalScore}점</p>
-              </div>
-              <p className="text-sm text-muted-foreground mt-4">
-                총 {totalQuestions}문제 완료
+          <Card className="text-center py-8">
+            <CardContent>
+              <div className="text-4xl mb-2">🎉</div>
+              <h2 className="text-lg font-bold mb-1">모든 문제 완료!</h2>
+              <p className="text-sm text-muted-foreground mb-3">
+                게임 종료까지 기다려주세요
               </p>
+              <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg">
+                <p className="text-xs text-muted-foreground">현재 점수</p>
+                <p className="text-3xl font-bold text-primary">{totalScore}점</p>
+              </div>
             </CardContent>
           </Card>
         )}
 
         {room.status === 'in_progress' && isQuizGame && !currentQuestion && !quizCompleted && (
-          <Card>
-            <CardHeader className="text-center">
-              <div className="text-6xl mb-4">🎮</div>
-              <CardTitle>게임 진행 중</CardTitle>
-              <CardDescription>
-                문제를 불러오는 중입니다...
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
-              <div className="animate-pulse">
-                <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-100 dark:bg-blue-900/30 rounded-full">
-                  <span className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></span>
-                  <span className="text-sm">로딩 중...</span>
-                </div>
-              </div>
+          <Card className="text-center py-8">
+            <CardContent>
+              <div className="text-4xl mb-2">🎮</div>
+              <h2 className="text-lg font-bold mb-1">게임 진행 중</h2>
+              <p className="text-sm text-muted-foreground">
+                문제를 불러오는 중...
+              </p>
             </CardContent>
           </Card>
         )}
 
         {room.status === 'in_progress' && !isQuizGame && (
-          <Card>
-            <CardHeader className="text-center">
-              <div className="text-6xl mb-4">🎮</div>
-              <CardTitle>게임 진행 중</CardTitle>
-              <CardDescription>
-                게임이 진행되고 있습니다
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
-              <div className="p-6 bg-muted rounded-lg">
-                <p className="text-lg font-medium">게임 컨텐츠가 여기에 표시됩니다</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  ({GAME_TYPES[room.game_type] || room.game_type} 기능 구현 예정)
-                </p>
-              </div>
+          <Card className="text-center py-8">
+            <CardContent>
+              <div className="text-4xl mb-2">🎮</div>
+              <h2 className="text-lg font-bold mb-1">게임 진행 중</h2>
+              <p className="text-sm text-muted-foreground">
+                {GAME_TYPES[room.game_type] || room.game_type}
+              </p>
             </CardContent>
           </Card>
         )}
 
         {room.status === 'finished' && (
-          <Card>
-            <CardHeader className="text-center">
-              <div className="text-6xl mb-4">🏆</div>
-              <CardTitle>게임 종료</CardTitle>
-              <CardDescription>
-                수고하셨습니다!
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="text-center">
+          <Card className="text-center py-8">
+            <CardContent>
+              <div className="text-4xl mb-2">🏆</div>
+              <h2 className="text-lg font-bold mb-1">게임 종료</h2>
               {isQuizGame && (
-                <div className="mb-6 p-6 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg">
-                  <p className="text-sm text-muted-foreground">최종 점수</p>
-                  <p className="text-4xl font-bold text-primary">{totalScore}점</p>
+                <div className="mb-4 p-4 bg-gradient-to-r from-yellow-50 to-orange-50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">최종 점수</p>
+                  <p className="text-3xl font-bold text-primary">{totalScore}점</p>
                 </div>
               )}
               <Link href="/">
-                <Button size="lg">메인으로 돌아가기</Button>
+                <Button>메인으로</Button>
               </Link>
             </CardContent>
           </Card>

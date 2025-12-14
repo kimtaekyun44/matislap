@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const validGameTypes = ['quiz', 'drawing', 'word_chain', 'speed_quiz', 'voting']
+    const validGameTypes = ['quiz', 'drawing', 'word_chain', 'speed_quiz', 'voting', 'ladder']
     if (!validGameTypes.includes(gameType)) {
       return NextResponse.json(
         { error: '유효하지 않은 게임 타입입니다.' },

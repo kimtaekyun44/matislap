@@ -16,10 +16,15 @@ interface GameRoom {
   max_participants: number
   status: 'waiting' | 'in_progress' | 'finished'
   participant_count: number
-  current_question_index: number | null
   created_at: string
   started_at: string | null
   ended_at: string | null
+}
+
+interface QuizProgress {
+  completed_participants: number
+  total_participants: number
+  total_questions: number
 }
 
 interface Participant {
@@ -48,12 +53,34 @@ interface DrawingWord {
   order_num: number
 }
 
+interface LadderItem {
+  id: string
+  item_text: string
+  position: number
+}
+
+interface LadderSelection {
+  id: string
+  participant_id: string
+  start_position: number
+  result_position: number | null
+  is_revealed: boolean
+  game_participants?: { nickname: string }
+}
+
+interface LadderGameState {
+  ladder_data: {
+    lines_count: number
+    horizontal_lines: { row: number; fromCol: number }[]
+  } | null
+  selections: LadderSelection[]
+  items: LadderItem[]
+}
+
 const GAME_TYPES: Record<string, string> = {
   quiz: '퀴즈 게임',
   drawing: '그림 그리기',
-  word_chain: '단어 연상',
-  speed_quiz: '스피드 퀴즈',
-  voting: '투표 게임',
+  ladder: '사다리 게임',
 }
 
 export default function RoomManagePage() {
@@ -87,30 +114,75 @@ export default function RoomManagePage() {
   })
   const [editingWordId, setEditingWordId] = useState<string | null>(null)
 
+  // 그림 그리기 게임 진행 상태
+  const [currentDrawingRound, setCurrentDrawingRound] = useState<{
+    round_num: number
+    drawer_nickname: string
+    current_word: string
+    drawing_data: string | null
+  } | null>(null)
+
+  // 그리는 사람 선택
+  const [selectedDrawerId, setSelectedDrawerId] = useState<string>('')
+
+  // 사다리 게임 상태
+  const [ladderItems, setLadderItems] = useState<LadderItem[]>([])
+  const [ladderGame, setLadderGame] = useState<LadderGameState | null>(null)
+  const [showLadderModal, setShowLadderModal] = useState(false)
+  const [ladderForm, setLadderForm] = useState({ item_text: '' })
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
+
+  // 퀴즈 진행 상태 (개인별 진행 방식)
+  const [quizProgress, setQuizProgress] = useState<QuizProgress | null>(null)
+
   useEffect(() => {
     fetchRoom()
     fetchParticipants()
+  }, [id])
 
-    // 5초마다 참가자 목록 새로고침
+  // 별도 폴링 - room 상태 변경 시 재설정
+  useEffect(() => {
     const interval = setInterval(() => {
       fetchParticipants()
       if (room?.game_type === 'quiz') {
         fetchQuestions()
+        if (room?.status === 'in_progress') {
+          fetchQuizProgress()
+        }
       } else if (room?.game_type === 'drawing') {
         fetchDrawingWords()
+        if (room?.status === 'in_progress') {
+          fetchDrawingRoundStatus()
+        }
+      } else if (room?.game_type === 'ladder') {
+        fetchLadderItems()
+        if (room?.status === 'in_progress') {
+          fetchLadderGame()
+        }
       }
-    }, 5000)
+    }, 2000)
 
     return () => clearInterval(interval)
-  }, [id])
+  }, [id, room?.game_type, room?.status])
 
   useEffect(() => {
     if (room?.game_type === 'quiz') {
       fetchQuestions()
+      if (room?.status === 'in_progress') {
+        fetchQuizProgress()
+      }
     } else if (room?.game_type === 'drawing') {
       fetchDrawingWords()
+      if (room?.status === 'in_progress') {
+        fetchDrawingRoundStatus()
+      }
+    } else if (room?.game_type === 'ladder') {
+      fetchLadderItems()
+      if (room?.status === 'in_progress') {
+        fetchLadderGame()
+      }
     }
-  }, [room?.game_type])
+  }, [room?.game_type, room?.status])
 
   const fetchRoom = async () => {
     try {
@@ -160,6 +232,22 @@ export default function RoomManagePage() {
     }
   }
 
+  const fetchQuizProgress = async () => {
+    try {
+      const response = await fetch(`/api/games/quiz/status?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setQuizProgress({
+          completed_participants: data.completed_participants || 0,
+          total_participants: data.total_participants || 0,
+          total_questions: data.total_questions || 0
+        })
+      }
+    } catch (error) {
+      console.error('Failed to fetch quiz progress:', error)
+    }
+  }
+
   const fetchDrawingWords = async () => {
     try {
       const response = await fetch(`/api/games/drawing?room_id=${id}`)
@@ -169,6 +257,209 @@ export default function RoomManagePage() {
       }
     } catch (error) {
       console.error('Failed to fetch drawing words:', error)
+    }
+  }
+
+  const fetchDrawingRoundStatus = async () => {
+    try {
+      const response = await fetch(`/api/games/drawing/round?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        if (data.current_round) {
+          // 그림 데이터도 가져오기
+          const drawResponse = await fetch(`/api/games/drawing/draw?round_id=${data.current_round.id}`)
+          let drawingData = null
+          if (drawResponse.ok) {
+            const drawData = await drawResponse.json()
+            drawingData = drawData.drawing_data
+          }
+
+          setCurrentDrawingRound({
+            round_num: data.current_round.round_num,
+            drawer_nickname: data.drawer?.nickname || '알 수 없음',
+            current_word: data.current_word?.word || '',
+            drawing_data: drawingData
+          })
+        } else {
+          setCurrentDrawingRound(null)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch drawing round status:', error)
+    }
+  }
+
+  // 사다리 게임 함수들
+  const fetchLadderItems = async () => {
+    try {
+      const response = await fetch(`/api/games/ladder?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setLadderItems(data.items || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch ladder items:', error)
+    }
+  }
+
+  const fetchLadderGame = async () => {
+    try {
+      const response = await fetch(`/api/games/ladder/game?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setLadderGame(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch ladder game:', error)
+    }
+  }
+
+  const handleLadderStart = async () => {
+    if (ladderItems.length < 2) {
+      toast.error('최소 2개의 결과 항목이 필요합니다.')
+      return
+    }
+
+    setActionLoading(true)
+    try {
+      const response = await fetch('/api/games/ladder/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: id, action: 'start' }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        toast.error(data.error || '게임 시작에 실패했습니다.')
+        return
+      }
+
+      toast.success('사다리 게임이 시작되었습니다!')
+      await fetchRoom()
+      await fetchLadderGame()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleLadderReveal = async (participantId: string) => {
+    setActionLoading(true)
+    try {
+      const response = await fetch('/api/games/ladder/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: id, action: 'reveal', participant_id: participantId }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        toast.error(data.error || '결과 공개에 실패했습니다.')
+        return
+      }
+
+      toast.success('결과가 공개되었습니다!')
+      await fetchLadderGame()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleLadderEnd = async () => {
+    setActionLoading(true)
+    try {
+      const response = await fetch('/api/games/ladder/game', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: id, action: 'end' }),
+      })
+
+      if (!response.ok) {
+        toast.error('게임 종료에 실패했습니다.')
+        return
+      }
+
+      toast.success('사다리 게임이 종료되었습니다.')
+      await fetchRoom()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleLadderSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!ladderForm.item_text.trim()) {
+      toast.error('결과 항목을 입력해주세요.')
+      return
+    }
+
+    setActionLoading(true)
+    try {
+      const url = editingItemId
+        ? `/api/games/ladder/${editingItemId}`
+        : '/api/games/ladder'
+      const method = editingItemId ? 'PATCH' : 'POST'
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: id,
+          item_text: ladderForm.item_text.trim(),
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        toast.error(data.error || '저장에 실패했습니다.')
+        return
+      }
+
+      toast.success(editingItemId ? '결과 항목이 수정되었습니다.' : '결과 항목이 추가되었습니다.')
+      setShowLadderModal(false)
+      resetLadderForm()
+      await fetchLadderItems()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const resetLadderForm = () => {
+    setLadderForm({ item_text: '' })
+    setEditingItemId(null)
+  }
+
+  const handleEditItem = (item: LadderItem) => {
+    setLadderForm({ item_text: item.item_text })
+    setEditingItemId(item.id)
+    setShowLadderModal(true)
+  }
+
+  const handleDeleteItem = async (itemId: string) => {
+    if (!confirm('이 결과 항목을 삭제하시겠습니까?')) return
+
+    try {
+      const response = await fetch(`/api/games/ladder/${itemId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        toast.error('삭제에 실패했습니다.')
+        return
+      }
+
+      toast.success('결과 항목이 삭제되었습니다.')
+      await fetchLadderItems()
+    } catch {
+      toast.error('오류가 발생했습니다.')
     }
   }
 
@@ -191,6 +482,18 @@ export default function RoomManagePage() {
         await handleDrawingStart()
       } else if (newStatus === 'finished') {
         await handleDrawingEnd()
+      } else {
+        await handleRoomStatusChange(newStatus)
+      }
+      return
+    }
+
+    // 사다리 게임인 경우
+    if (room?.game_type === 'ladder') {
+      if (newStatus === 'in_progress') {
+        await handleLadderStart()
+      } else if (newStatus === 'finished') {
+        await handleLadderEnd()
       } else {
         await handleRoomStatusChange(newStatus)
       }
@@ -284,12 +587,17 @@ export default function RoomManagePage() {
       return
     }
 
+    if (!selectedDrawerId) {
+      toast.error('그림 그릴 사람을 선택해주세요.')
+      return
+    }
+
     setActionLoading(true)
     try {
       const response = await fetch('/api/games/drawing/round', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room_id: id, action: 'start' }),
+        body: JSON.stringify({ room_id: id, action: 'start', drawer_id: selectedDrawerId }),
       })
 
       if (!response.ok) {
@@ -299,7 +607,9 @@ export default function RoomManagePage() {
       }
 
       toast.success('그림 그리기 게임이 시작되었습니다!')
+      setSelectedDrawerId('')
       await fetchRoom()
+      await fetchDrawingRoundStatus()
     } catch {
       toast.error('오류가 발생했습니다.')
     } finally {
@@ -309,12 +619,17 @@ export default function RoomManagePage() {
 
   // 그림 그리기 다음 라운드
   const handleDrawingNext = async () => {
+    if (!selectedDrawerId) {
+      toast.error('다음 그림 그릴 사람을 선택해주세요.')
+      return
+    }
+
     setActionLoading(true)
     try {
       const response = await fetch('/api/games/drawing/round', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room_id: id, action: 'next' }),
+        body: JSON.stringify({ room_id: id, action: 'next', drawer_id: selectedDrawerId }),
       })
 
       if (!response.ok) {
@@ -326,9 +641,12 @@ export default function RoomManagePage() {
       const data = await response.json()
       if (data.finished) {
         toast.success('모든 라운드가 끝났습니다!')
+        setCurrentDrawingRound(null)
       } else {
         toast.success(data.message)
+        await fetchDrawingRoundStatus()
       }
+      setSelectedDrawerId('')
       await fetchRoom()
     } catch {
       toast.error('오류가 발생했습니다.')
@@ -613,9 +931,7 @@ export default function RoomManagePage() {
   const activeParticipants = participants.filter(p => p.is_active)
   const isQuizGame = room.game_type === 'quiz'
   const isDrawingGame = room.game_type === 'drawing'
-  const currentQuestion = room.current_question_index
-    ? questions.find(q => q.order_num === room.current_question_index)
-    : null
+  const isLadderGame = room.game_type === 'ladder'
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -632,12 +948,12 @@ export default function RoomManagePage() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        <div className="mb-8">
-          <div className="flex items-center gap-4 mb-2">
-            <h1 className="text-3xl font-bold">{room.room_name}</h1>
+      <main className="container mx-auto px-3 py-4 max-w-lg">
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h1 className="text-xl font-bold">{room.room_name}</h1>
             <span
-              className={`px-3 py-1 text-sm rounded-full ${
+              className={`px-2 py-0.5 text-xs rounded-full ${
                 room.status === 'in_progress'
                   ? 'bg-green-100 text-green-700'
                   : room.status === 'waiting'
@@ -648,107 +964,118 @@ export default function RoomManagePage() {
               {room.status === 'in_progress' ? '진행중' : room.status === 'waiting' ? '대기중' : '종료'}
             </span>
           </div>
-          <p className="text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {GAME_TYPES[room.game_type] || room.game_type}
-            {isQuizGame && room.status === 'in_progress' && room.current_question_index && (
+            {isQuizGame && room.status === 'in_progress' && quizProgress && (
               <span className="ml-2">
-                - 문제 {room.current_question_index} / {questions.length}
+                - 완료: {quizProgress.completed_participants} / {quizProgress.total_participants}명
               </span>
             )}
           </p>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* 방 정보 */}
+        <div className="grid gap-4">
+          {/* 방 정보 + 게임 컨트롤 통합 */}
           <Card>
-            <CardHeader>
-              <CardTitle>방 정보</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-between items-center p-4 bg-muted rounded-lg">
+            <CardContent className="pt-4 space-y-4">
+              {/* 방 코드 */}
+              <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
                 <div>
-                  <p className="text-sm text-muted-foreground">방 코드</p>
-                  <p className="text-3xl font-mono font-bold">{room.room_code}</p>
+                  <p className="text-xs text-muted-foreground">방 코드</p>
+                  <p className="text-2xl font-mono font-bold">{room.room_code}</p>
                 </div>
-                <Button onClick={copyRoomCode} variant="outline">
-                  복사
-                </Button>
+                <div className="flex gap-2">
+                  <Button onClick={copyRoomCode} variant="outline" size="sm">
+                    복사
+                  </Button>
+                  <Button onClick={copyJoinUrl} variant="outline" size="sm">
+                    링크
+                  </Button>
+                </div>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground">참여 링크</span>
-                <Button onClick={copyJoinUrl} variant="outline" size="sm">
-                  링크 복사
-                </Button>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">최대 참가자</span>
-                <span>{room.max_participants}명</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">현재 참가자</span>
-                <span>{activeParticipants.length}명</span>
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* 게임 컨트롤 */}
-          <Card>
-            <CardHeader>
-              <CardTitle>게임 컨트롤</CardTitle>
-              <CardDescription>게임 상태를 관리하세요</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              {/* 참가자 수 */}
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">참가자</span>
+                <span>{activeParticipants.length} / {room.max_participants}명</span>
+              </div>
+
+              <hr />
+
+              {/* 그림 그리기 게임: 그리는 사람 선택 */}
+              {isDrawingGame && room.status === 'waiting' && participants.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">그림 그릴 사람</label>
+                  <select
+                    className="w-full p-2 border rounded-md text-sm"
+                    value={selectedDrawerId}
+                    onChange={(e) => setSelectedDrawerId(e.target.value)}
+                  >
+                    <option value="">선택해주세요</option>
+                    {participants.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nickname}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 게임 상태 버튼 */}
               {room.status === 'waiting' && (
                 <Button
                   className="w-full bg-green-600 hover:bg-green-700"
-                  size="lg"
                   onClick={() => handleStatusChange('in_progress')}
-                  disabled={actionLoading || (isQuizGame && questions.length === 0)}
+                  disabled={
+                    actionLoading ||
+                    (isQuizGame && questions.length === 0) ||
+                    (isDrawingGame && (!selectedDrawerId || drawingWords.length === 0)) ||
+                    (isLadderGame && ladderItems.length < 2)
+                  }
                 >
-                  {isQuizGame ? '퀴즈 시작하기' : '게임 시작하기'}
+                  {isQuizGame ? '퀴즈 시작' : isLadderGame ? '사다리 시작' : '게임 시작'}
                 </Button>
               )}
               {room.status === 'in_progress' && (
-                <>
-                  {isQuizGame && (
-                    <div className="p-4 bg-blue-50 rounded-lg text-center">
-                      <p className="text-sm text-blue-700">
-                        모든 참가자가 답변하면 자동으로 다음 문제로 넘어갑니다
-                      </p>
-                    </div>
-                  )}
-                  <Button
-                    className="w-full"
-                    size="lg"
-                    variant="destructive"
-                    onClick={() => handleStatusChange('finished')}
-                    disabled={actionLoading}
-                  >
-                    게임 종료하기
-                  </Button>
-                </>
+                <Button
+                  className="w-full"
+                  variant="destructive"
+                  onClick={() => handleStatusChange('finished')}
+                  disabled={actionLoading}
+                >
+                  게임 종료
+                </Button>
               )}
               {room.status === 'finished' && (
                 <Button
                   className="w-full"
-                  size="lg"
                   onClick={() => handleStatusChange('waiting')}
                   disabled={actionLoading}
                 >
                   다시 대기 상태로
                 </Button>
               )}
+
+              {/* 경고 메시지 */}
               {isQuizGame && questions.length === 0 && room.status === 'waiting' && (
-                <p className="text-sm text-amber-600 text-center">
+                <p className="text-xs text-amber-600 text-center">
                   퀴즈 문제를 먼저 추가해주세요
                 </p>
               )}
               {isDrawingGame && drawingWords.length === 0 && room.status === 'waiting' && (
-                <p className="text-sm text-amber-600 text-center">
+                <p className="text-xs text-amber-600 text-center">
                   제시어를 먼저 추가해주세요
                 </p>
               )}
+              {isLadderGame && ladderItems.length < 2 && room.status === 'waiting' && (
+                <p className="text-xs text-amber-600 text-center">
+                  최소 2개의 결과 항목을 추가해주세요
+                </p>
+              )}
+
               <hr />
+
+              {/* 방 삭제 버튼 */}
               <Button
                 className="w-full"
                 variant="outline"
@@ -765,39 +1092,41 @@ export default function RoomManagePage() {
             </CardContent>
           </Card>
 
-          {/* 퀴즈 게임: 현재 문제 표시 */}
-          {isQuizGame && room.status === 'in_progress' && currentQuestion && (
+          {/* 퀴즈 게임: 진행 상태 표시 (개인별 진행 방식) */}
+          {isQuizGame && room.status === 'in_progress' && quizProgress && (
             <Card className="md:col-span-2 border-2 border-primary">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <span className="text-2xl">📝</span>
-                  현재 문제 #{currentQuestion.order_num}
+                  <span className="text-2xl">📊</span>
+                  퀴즈 진행 현황
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-xl font-medium mb-4">{currentQuestion.question_text}</div>
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  {currentQuestion.options.map((option, idx) => (
-                    <div
-                      key={idx}
-                      className={`p-3 rounded-lg border-2 ${
-                        option === currentQuestion.correct_answer
-                          ? 'border-green-500 bg-green-50'
-                          : 'border-gray-200'
-                      }`}
-                    >
-                      <span className="font-bold mr-2">{idx + 1}.</span>
-                      {option}
-                      {option === currentQuestion.correct_answer && (
-                        <span className="ml-2 text-green-600">✓ 정답</span>
-                      )}
-                    </div>
-                  ))}
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="p-4 bg-blue-50 rounded-lg text-center">
+                    <p className="text-sm text-muted-foreground">총 문제 수</p>
+                    <p className="text-3xl font-bold text-blue-600">{quizProgress.total_questions}</p>
+                  </div>
+                  <div className="p-4 bg-green-50 rounded-lg text-center">
+                    <p className="text-sm text-muted-foreground">완료한 참가자</p>
+                    <p className="text-3xl font-bold text-green-600">
+                      {quizProgress.completed_participants} / {quizProgress.total_participants}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex gap-4 text-sm text-muted-foreground">
-                  <span>제한시간: {currentQuestion.time_limit}초</span>
-                  <span>배점: {currentQuestion.points}점</span>
+                <div className="bg-gray-100 rounded-full h-4 overflow-hidden">
+                  <div
+                    className="bg-green-500 h-full transition-all duration-500"
+                    style={{
+                      width: quizProgress.total_participants > 0
+                        ? `${(quizProgress.completed_participants / quizProgress.total_participants) * 100}%`
+                        : '0%'
+                    }}
+                  />
                 </div>
+                <p className="text-xs text-muted-foreground text-center mt-2">
+                  각 참가자가 자신의 속도로 문제를 풀고 있습니다
+                </p>
               </CardContent>
             </Card>
           )}
@@ -963,33 +1292,63 @@ export default function RoomManagePage() {
 
           {/* 그림 그리기 게임: 진행 상태 */}
           {isDrawingGame && room.status === 'in_progress' && (
-            <Card className="md:col-span-2 border-2 border-primary">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <span className="text-2xl">🎨</span>
-                  게임 진행 중
+            <Card className="border-2 border-primary">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <span>🎨</span>
+                  라운드 {currentDrawingRound?.round_num || 1} / {drawingWords.length}
                 </CardTitle>
+                {currentDrawingRound && (
+                  <div className="text-xs space-y-1">
+                    <p>그리는 사람: <span className="font-medium">{currentDrawingRound.drawer_nickname}</span></p>
+                    <p>제시어: <span className="font-bold text-primary">{currentDrawingRound.current_word}</span></p>
+                  </div>
+                )}
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="text-center py-4">
-                  <p className="text-lg">라운드 진행 중입니다!</p>
-                  <p className="text-muted-foreground mt-2">
-                    학생들이 그림을 그리고 정답을 맞추고 있습니다.
-                  </p>
+              <CardContent className="space-y-3">
+                {/* 그림 표시 영역 */}
+                <div className="border rounded-lg bg-white w-full aspect-square flex items-center justify-center">
+                  {currentDrawingRound?.drawing_data ? (
+                    <img
+                      src={currentDrawingRound.drawing_data}
+                      alt="현재 그림"
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">그림을 기다리는 중...</p>
+                  )}
                 </div>
-                <div className="flex gap-3">
+                {/* 다음 그리는 사람 선택 */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium">다음 그릴 사람</label>
+                  <select
+                    className="w-full p-2 border rounded-md text-sm"
+                    value={selectedDrawerId}
+                    onChange={(e) => setSelectedDrawerId(e.target.value)}
+                  >
+                    <option value="">선택해주세요</option>
+                    {participants.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nickname}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-2">
                   <Button
                     className="flex-1"
+                    size="sm"
                     variant="outline"
                     onClick={handleDrawingNext}
-                    disabled={actionLoading}
+                    disabled={actionLoading || !selectedDrawerId}
                   >
                     다음 라운드
                   </Button>
                   <Button
                     className="flex-1"
+                    size="sm"
                     variant="destructive"
-                    onClick={() => handleStatusChange('finished')}
+                    onClick={handleDrawingEnd}
                     disabled={actionLoading}
                   >
                     게임 종료
@@ -999,14 +1358,182 @@ export default function RoomManagePage() {
             </Card>
           )}
 
-          {/* 참가자 목록 */}
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <div className="flex justify-between items-center">
-                <div>
-                  <CardTitle>참가자 목록</CardTitle>
-                  <CardDescription>현재 방에 참여 중인 학생들</CardDescription>
+          {/* 사다리 게임: 결과 항목 목록 (대기/종료 상태) */}
+          {isLadderGame && room.status !== 'in_progress' && (
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <CardTitle>결과 항목</CardTitle>
+                    <CardDescription>총 {ladderItems.length}개의 항목</CardDescription>
+                  </div>
+                  {room.status === 'waiting' && (
+                    <Button onClick={() => { resetLadderForm(); setShowLadderModal(true); }}>
+                      + 항목 추가
+                    </Button>
+                  )}
                 </div>
+              </CardHeader>
+              <CardContent>
+                {ladderItems.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>결과 항목이 없습니다.</p>
+                    {room.status === 'waiting' && (
+                      <Button
+                        className="mt-4"
+                        variant="outline"
+                        onClick={() => { resetLadderForm(); setShowLadderModal(true); }}
+                      >
+                        첫 번째 항목 추가하기
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {ladderItems.map((item, idx) => (
+                      <div
+                        key={item.id}
+                        className="p-3 border rounded-lg flex justify-between items-center"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium">
+                            {idx + 1}
+                          </span>
+                          <span className="font-medium">{item.item_text}</span>
+                        </div>
+                        {room.status === 'waiting' && (
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditItem(item)}
+                            >
+                              수정
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => handleDeleteItem(item.id)}
+                            >
+                              삭제
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 사다리 게임: 진행 상태 */}
+          {isLadderGame && room.status === 'in_progress' && ladderGame && (
+            <Card className="border-2 border-primary">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <span>🪜</span>
+                  사다리 게임 진행 중
+                </CardTitle>
+                <CardDescription>
+                  선택: {ladderGame.selections.length} / {ladderGame.ladder_data?.lines_count || 0}명
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* 참가자 선택 현황 및 결과 공개 */}
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">참가자 결과</p>
+                  {ladderGame.selections.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      아직 참가자가 출발점을 선택하지 않았습니다.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {ladderGame.selections.map((selection) => {
+                        const resultItem = selection.is_revealed && selection.result_position !== null
+                          ? ladderGame.items.find(i => i.position === selection.result_position)
+                          : null
+                        return (
+                          <div
+                            key={selection.id}
+                            className="p-3 border rounded-lg flex justify-between items-center"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-medium">
+                                {selection.start_position + 1}
+                              </span>
+                              <span className="font-medium">
+                                {selection.game_participants?.nickname || '알 수 없음'}
+                              </span>
+                              {selection.is_revealed && resultItem && (
+                                <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-sm">
+                                  → {resultItem.item_text}
+                                </span>
+                              )}
+                            </div>
+                            {!selection.is_revealed && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleLadderReveal(selection.participant_id)}
+                                disabled={actionLoading}
+                              >
+                                결과 공개
+                              </Button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 결과 항목 목록 (하단) */}
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">도착 결과</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {ladderGame.items.map((item, idx) => {
+                      const revealedSelection = ladderGame.selections.find(
+                        s => s.is_revealed && s.result_position === item.position
+                      )
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-2 rounded-lg text-center text-sm ${
+                            revealedSelection
+                              ? 'bg-green-100 text-green-700 border-2 border-green-300'
+                              : 'bg-muted'
+                          }`}
+                        >
+                          <span className="font-medium">{idx + 1}. {item.item_text}</span>
+                          {revealedSelection && (
+                            <p className="text-xs mt-1">
+                              {revealedSelection.game_participants?.nickname}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <Button
+                  className="w-full"
+                  variant="destructive"
+                  onClick={handleLadderEnd}
+                  disabled={actionLoading}
+                >
+                  게임 종료
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 참가자 목록 */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex justify-between items-center">
+                <CardTitle className="text-base">참가자</CardTitle>
                 <Button variant="outline" size="sm" onClick={fetchParticipants}>
                   새로고침
                 </Button>
@@ -1014,22 +1541,22 @@ export default function RoomManagePage() {
             </CardHeader>
             <CardContent>
               {activeParticipants.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <p>아직 참가자가 없습니다.</p>
-                  <p className="text-sm mt-2">
-                    학생들에게 방 코드 <span className="font-mono font-bold">{room.room_code}</span>를 공유하세요!
+                <div className="text-center py-4 text-muted-foreground">
+                  <p className="text-sm">아직 참가자가 없습니다.</p>
+                  <p className="text-xs mt-1">
+                    방 코드 <span className="font-mono font-bold">{room.room_code}</span>를 공유하세요
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                <div className="grid grid-cols-3 gap-2">
                   {activeParticipants
                     .sort((a, b) => b.score - a.score)
                     .map((participant, index) => (
                     <div
                       key={participant.id}
-                      className="flex flex-col items-center p-3 bg-muted rounded-lg"
+                      className="flex flex-col items-center p-2 bg-muted rounded-lg"
                     >
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg mb-2 ${
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm mb-1 ${
                         index === 0 ? 'bg-yellow-400 text-yellow-900' :
                         index === 1 ? 'bg-gray-300 text-gray-700' :
                         index === 2 ? 'bg-amber-600 text-amber-100' :
@@ -1037,7 +1564,7 @@ export default function RoomManagePage() {
                       }`}>
                         {index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1}
                       </div>
-                      <p className="text-sm font-medium text-center truncate w-full">
+                      <p className="text-xs font-medium text-center truncate w-full">
                         {participant.nickname}
                       </p>
                       {room.status !== 'waiting' && (
@@ -1258,6 +1785,51 @@ export default function RoomManagePage() {
                     disabled={actionLoading}
                   >
                     {actionLoading ? '저장 중...' : editingWordId ? '수정' : '추가'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 사다리 결과 항목 추가/수정 모달 */}
+      {showLadderModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <h2 className="text-xl font-bold mb-4">
+                {editingItemId ? '결과 항목 수정' : '새 결과 항목 추가'}
+              </h2>
+              <form onSubmit={handleLadderSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">결과 항목</label>
+                  <Input
+                    value={ladderForm.item_text}
+                    onChange={(e) => setLadderForm({ ...ladderForm, item_text: e.target.value })}
+                    placeholder="예: 꽝, 커피 쏘기, 1등"
+                    autoFocus
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    사다리 도착 시 받게 될 결과입니다
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => { setShowLadderModal(false); resetLadderForm(); }}
+                  >
+                    취소
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-1"
+                    disabled={actionLoading}
+                  >
+                    {actionLoading ? '저장 중...' : editingItemId ? '수정' : '추가'}
                   </Button>
                 </div>
               </form>

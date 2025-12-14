@@ -27,9 +27,7 @@ interface GameRoom {
 const GAME_TYPES = [
   { value: 'quiz', label: '퀴즈 게임' },
   { value: 'drawing', label: '그림 그리기' },
-  { value: 'word_chain', label: '단어 연상' },
-  { value: 'speed_quiz', label: '스피드 퀴즈' },
-  { value: 'voting', label: '투표 게임' },
+  { value: 'ladder', label: '사다리 게임' },
 ]
 
 export default function InstructorDashboardPage() {
@@ -219,35 +217,38 @@ export default function InstructorDashboardPage() {
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {rooms.map((room) => (
                     <div
                       key={room.id}
-                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                      className="p-4 border rounded-lg hover:bg-muted/50 transition-colors flex justify-between"
                     >
                       <div>
-                        <p className="font-medium">{room.room_name}</p>
+                        <h3 className="font-semibold text-lg mb-1">{room.room_name}</h3>
                         <p className="text-sm text-muted-foreground">
-                          방 코드: <span className="font-mono font-bold">{room.room_code}</span>
-                          {' | '}
-                          {GAME_TYPES.find(g => g.value === room.game_type)?.label || room.game_type}
+                          방 코드: <span className="font-mono font-bold text-primary">{room.room_code}</span>
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          게임: {GAME_TYPES.find(g => g.value === room.game_type)?.label || room.game_type}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-2 py-1 text-xs rounded-full ${
+                      <div className="flex flex-col gap-2">
+                        <Button
+                          size="sm"
+                          className={`w-16 justify-center ${
                             room.status === 'in_progress'
-                              ? 'bg-green-100 text-green-700'
+                              ? 'bg-green-500 hover:bg-green-600 text-white'
                               : room.status === 'waiting'
-                              ? 'bg-yellow-100 text-yellow-700'
-                              : 'bg-gray-100 text-gray-700'
+                              ? 'bg-yellow-400 hover:bg-yellow-500 text-yellow-900'
+                              : 'bg-gray-400 hover:bg-gray-500 text-white'
                           }`}
+                          disabled
                         >
                           {room.status === 'in_progress' ? '진행중' : room.status === 'waiting' ? '대기중' : '종료'}
-                        </span>
+                        </Button>
                         <Button
-                          variant="outline"
                           size="sm"
+                          className="w-16 justify-center bg-blue-500 hover:bg-blue-600 text-white"
                           onClick={() => handleManageRoom(room.id)}
                         >
                           관리
