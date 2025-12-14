@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 export default function Home() {
   const router = useRouter()
@@ -27,7 +28,7 @@ export default function Home() {
     setLoading(true)
 
     try {
-      const response = await fetch(`/api/games/join?code=${code}`)
+      const response = await apiFetch(`/api/games/join?code=${code}`)
 
       if (!response.ok) {
         const data = await response.json()

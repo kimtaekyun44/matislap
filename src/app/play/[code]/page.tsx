@@ -69,7 +69,7 @@ export default function PlayPage() {
 
   const fetchRoomInfo = useCallback(async () => {
     try {
-      const response = await fetch(`/api/games/join?code=${code}&include_finished=true`)
+      const response = await apiFetch(`/api/games/join?code=${code}&include_finished=true`)
       const data = await response.json()
 
       if (!response.ok) {
@@ -91,7 +91,7 @@ export default function PlayPage() {
 
   const fetchCurrentQuestion = useCallback(async (roomId: string, participantId: string) => {
     try {
-      const response = await fetch(`/api/games/quiz/status?room_id=${roomId}&participant_id=${participantId}`)
+      const response = await apiFetch(`/api/games/quiz/status?room_id=${roomId}&participant_id=${participantId}`)
       if (!response.ok) return { question: null, total: 0, answered: 0 }
 
       const data = await response.json()

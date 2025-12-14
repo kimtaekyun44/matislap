@@ -84,7 +84,7 @@ export default function DrawingPlayPage() {
 
   const fetchRoomInfo = useCallback(async () => {
     try {
-      const response = await fetch(`/api/games/join?code=${code}&include_finished=true`)
+      const response = await apiFetch(`/api/games/join?code=${code}&include_finished=true`)
       const data = await response.json()
 
       if (!response.ok) {
@@ -105,7 +105,7 @@ export default function DrawingPlayPage() {
 
   const fetchRoundInfo = useCallback(async (roomId: string) => {
     try {
-      const response = await fetch(`/api/games/drawing/round?room_id=${roomId}`)
+      const response = await apiFetch(`/api/games/drawing/round?room_id=${roomId}`)
       if (!response.ok) return null
 
       const data = await response.json()
@@ -122,7 +122,7 @@ export default function DrawingPlayPage() {
 
   const fetchDrawingData = useCallback(async (roundId: string) => {
     try {
-      const response = await fetch(`/api/games/drawing/draw?round_id=${roundId}`)
+      const response = await apiFetch(`/api/games/drawing/draw?round_id=${roundId}`)
       if (!response.ok) return
 
       const data = await response.json()

@@ -98,7 +98,7 @@ export default function LadderPlayPage() {
 
   const fetchRoomInfo = async () => {
     try {
-      const response = await fetch(`/api/games/join?code=${code}&include_finished=true`)
+      const response = await apiFetch(`/api/games/join?code=${code}&include_finished=true`)
       if (!response.ok) {
         toast.error('방 정보를 불러올 수 없습니다.')
         router.replace('/')
@@ -128,7 +128,7 @@ export default function LadderPlayPage() {
     if (!room) return
 
     try {
-      const response = await fetch(`/api/games/ladder/game?room_id=${room.id}`)
+      const response = await apiFetch(`/api/games/ladder/game?room_id=${room.id}`)
       if (response.ok) {
         const data = await response.json()
         setLadderGame(data)
