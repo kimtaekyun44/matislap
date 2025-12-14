@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 interface AdminUser {
   id: string
@@ -35,7 +36,7 @@ export default function AdminDashboardPage() {
 
   const checkAdminSession = async () => {
     try {
-      const response = await fetch('/api/admin/auth/me')
+      const response = await apiFetch('/api/admin/auth/me')
       const data = await response.json()
 
       if (!response.ok) {
@@ -54,7 +55,7 @@ export default function AdminDashboardPage() {
 
   const fetchPendingInstructors = async () => {
     try {
-      const response = await fetch('/api/admin/instructors?status=pending')
+      const response = await apiFetch('/api/admin/instructors?status=pending')
       const data = await response.json()
 
       if (response.ok) {
@@ -67,7 +68,7 @@ export default function AdminDashboardPage() {
 
   const handleApproval = async (instructorId: string, status: 'approved' | 'rejected') => {
     try {
-      const response = await fetch(`/api/admin/instructors/${instructorId}/approve`, {
+      const response = await apiFetch(`/api/admin/instructors/${instructorId}/approve`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -88,7 +89,7 @@ export default function AdminDashboardPage() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/admin/auth/logout', { method: 'POST' })
+      await apiFetch('/api/admin/auth/logout', { method: 'POST' })
       router.push('/admin/login')
     } catch (error) {
       console.error('Logout error:', error)

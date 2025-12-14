@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 export default function InstructorRegisterPage() {
   const router = useRouter()
@@ -45,7 +46,7 @@ export default function InstructorRegisterPage() {
         return
       }
 
-      const response = await fetch('/api/auth/register', {
+      const response = await apiFetch('/api/auth/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

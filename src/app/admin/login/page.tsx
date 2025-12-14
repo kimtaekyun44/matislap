@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 export default function AdminLoginPage() {
   const router = useRouter()
@@ -18,7 +19,7 @@ export default function AdminLoginPage() {
     setLoading(true)
 
     try {
-      const response = await fetch('/api/admin/auth/login', {
+      const response = await apiFetch('/api/admin/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

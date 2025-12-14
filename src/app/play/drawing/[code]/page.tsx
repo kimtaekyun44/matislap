@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 interface Participant {
   id: string
@@ -298,7 +299,7 @@ export default function DrawingPlayPage() {
     if (currentRound && participant) {
       const data = canvas.toDataURL('image/png')
       try {
-        await fetch('/api/games/drawing/draw', {
+        await apiFetch('/api/games/drawing/draw', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -379,7 +380,7 @@ export default function DrawingPlayPage() {
     setSubmittingGuess(true)
 
     try {
-      const response = await fetch('/api/games/drawing/guess', {
+      const response = await apiFetch('/api/games/drawing/guess', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

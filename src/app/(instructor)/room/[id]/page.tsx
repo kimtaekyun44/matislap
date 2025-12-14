@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 interface GameRoom {
   id: string
@@ -322,7 +323,7 @@ export default function RoomManagePage() {
 
     setActionLoading(true)
     try {
-      const response = await fetch('/api/games/ladder/game', {
+      const response = await apiFetch('/api/games/ladder/game', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: id, action: 'start' }),
@@ -347,7 +348,7 @@ export default function RoomManagePage() {
   const handleLadderReveal = async (participantId: string) => {
     setActionLoading(true)
     try {
-      const response = await fetch('/api/games/ladder/game', {
+      const response = await apiFetch('/api/games/ladder/game', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: id, action: 'reveal', participant_id: participantId }),
@@ -371,7 +372,7 @@ export default function RoomManagePage() {
   const handleLadderEnd = async () => {
     setActionLoading(true)
     try {
-      const response = await fetch('/api/games/ladder/game', {
+      const response = await apiFetch('/api/games/ladder/game', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: id, action: 'end' }),
@@ -536,7 +537,7 @@ export default function RoomManagePage() {
 
     setActionLoading(true)
     try {
-      const response = await fetch('/api/games/quiz/status', {
+      const response = await apiFetch('/api/games/quiz/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: id, action: 'start' }),
@@ -560,7 +561,7 @@ export default function RoomManagePage() {
   const handleQuizEnd = async () => {
     setActionLoading(true)
     try {
-      const response = await fetch('/api/games/quiz/status', {
+      const response = await apiFetch('/api/games/quiz/status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: id, action: 'end' }),
@@ -594,7 +595,7 @@ export default function RoomManagePage() {
 
     setActionLoading(true)
     try {
-      const response = await fetch('/api/games/drawing/round', {
+      const response = await apiFetch('/api/games/drawing/round', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: id, action: 'start', drawer_id: selectedDrawerId }),
@@ -626,7 +627,7 @@ export default function RoomManagePage() {
 
     setActionLoading(true)
     try {
-      const response = await fetch('/api/games/drawing/round', {
+      const response = await apiFetch('/api/games/drawing/round', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: id, action: 'next', drawer_id: selectedDrawerId }),
@@ -659,7 +660,7 @@ export default function RoomManagePage() {
   const handleDrawingEnd = async () => {
     setActionLoading(true)
     try {
-      const response = await fetch('/api/games/drawing/round', {
+      const response = await apiFetch('/api/games/drawing/round', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: id, action: 'end' }),
@@ -765,7 +766,7 @@ export default function RoomManagePage() {
           body: JSON.stringify(payload),
         })
       } else {
-        response = await fetch('/api/games/quiz', {
+        response = await apiFetch('/api/games/quiz', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),

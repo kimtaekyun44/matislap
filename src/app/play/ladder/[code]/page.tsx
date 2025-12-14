@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 interface Participant {
   id: string
@@ -150,7 +151,7 @@ export default function LadderPlayPage() {
 
     setSelectingPosition(position)
     try {
-      const response = await fetch('/api/games/ladder/select', {
+      const response = await apiFetch('/api/games/ladder/select', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

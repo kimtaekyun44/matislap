@@ -46,12 +46,13 @@ export async function getInstructorSession(): Promise<InstructorTokenPayload | n
 
 export async function setInstructorCookie(token: string) {
   const cookieStore = await cookies()
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
   cookieStore.set(INSTRUCTOR_TOKEN_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     maxAge: 60 * 60 * 24, // 24 hours
-    path: '/',
+    path: basePath || '/',
   })
 }
 

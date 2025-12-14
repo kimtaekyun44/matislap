@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
+import { apiFetch } from '@/lib/utils/api'
 
 interface UserSession {
   id: string
@@ -24,7 +25,7 @@ export default function PendingApprovalPage() {
 
   const checkStatus = async () => {
     try {
-      const response = await fetch('/api/auth/me')
+      const response = await apiFetch('/api/auth/me')
 
       if (!response.ok) {
         router.push('/login')
@@ -46,7 +47,7 @@ export default function PendingApprovalPage() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' })
+      await apiFetch('/api/auth/logout', { method: 'POST' })
       router.push('/')
     } catch {
       router.push('/')

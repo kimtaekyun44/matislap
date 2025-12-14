@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 interface RoomInfo {
   id: string
@@ -40,7 +41,7 @@ export default function JoinRoomPage() {
 
   const fetchRoomInfo = async () => {
     try {
-      const response = await fetch(`/api/games/join?code=${code}`)
+      const response = await apiFetch(`/api/games/join?code=${code}`)
       const data = await response.json()
 
       if (!response.ok) {
@@ -72,7 +73,7 @@ export default function JoinRoomPage() {
     setJoining(true)
 
     try {
-      const response = await fetch('/api/games/join', {
+      const response = await apiFetch('/api/games/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

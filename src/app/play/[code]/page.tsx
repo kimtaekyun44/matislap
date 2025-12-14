@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 interface Participant {
   id: string
@@ -219,7 +220,7 @@ export default function PlayPage() {
     const answerTime = Date.now() - questionStartTime
 
     try {
-      const response = await fetch('/api/games/quiz/answer', {
+      const response = await apiFetch('/api/games/quiz/answer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

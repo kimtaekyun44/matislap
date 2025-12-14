@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import toast from 'react-hot-toast'
+import { apiFetch } from '@/lib/utils/api'
 
 interface UserSession {
   id: string
@@ -49,7 +50,7 @@ export default function InstructorDashboardPage() {
 
   const checkSession = async () => {
     try {
-      const response = await fetch('/api/auth/me')
+      const response = await apiFetch('/api/auth/me')
 
       if (!response.ok) {
         router.push('/login')
@@ -74,7 +75,7 @@ export default function InstructorDashboardPage() {
 
   const fetchRooms = async () => {
     try {
-      const response = await fetch('/api/games/rooms')
+      const response = await apiFetch('/api/games/rooms')
       if (response.ok) {
         const data = await response.json()
         setRooms(data.rooms || [])
@@ -86,7 +87,7 @@ export default function InstructorDashboardPage() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' })
+      await apiFetch('/api/auth/logout', { method: 'POST' })
       router.push('/')
     } catch {
       router.push('/')
@@ -102,7 +103,7 @@ export default function InstructorDashboardPage() {
     setCreateLoading(true)
 
     try {
-      const response = await fetch('/api/games/rooms', {
+      const response = await apiFetch('/api/games/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRoom),
