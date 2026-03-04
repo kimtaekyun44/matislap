@@ -23,6 +23,7 @@ const GAME_TYPES: Record<string, string> = {
   quiz: '퀴즈 게임',
   drawing: '그림 그리기',
   ladder: '사다리 게임',
+  survey: '설문조사',
 }
 
 export default function JoinRoomPage() {
