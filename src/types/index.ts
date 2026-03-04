@@ -19,7 +19,8 @@ export enum ApprovalStatus {
 export enum GameType {
   QUIZ = 'quiz',
   DRAWING = 'drawing',
-  LADDER = 'ladder'
+  LADDER = 'ladder',
+  SURVEY = 'survey'
 }
 
 export enum RoomStatus {
@@ -358,6 +359,38 @@ export interface LadderGameState {
   ladder_data: LadderData | null;
   selections: LadderSelection[];
   items: LadderItem[];
+}
+
+// Survey Game
+export type SurveyQuestionType = 'short_answer' | 'choice_2' | 'choice_4';
+
+export interface SurveyQuestion {
+  id: string;
+  room_id: string;
+  question_text: string;
+  question_type: SurveyQuestionType;
+  options: string[] | null;
+  order_num: number;
+  created_at: string;
+}
+
+export interface SurveyAnswer {
+  id: string;
+  question_id: string;
+  participant_id: string;
+  answer_text: string;
+  created_at: string;
+}
+
+export interface SurveyResultRow {
+  participant_id: string;
+  nickname: string;
+  answers: Record<string, string>; // question_id -> answer_text
+}
+
+export interface SurveyResultsResponse {
+  questions: SurveyQuestion[];
+  rows: SurveyResultRow[];
 }
 
 // ========================================

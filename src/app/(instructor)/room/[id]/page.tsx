@@ -69,6 +69,20 @@ interface LadderSelection {
   game_participants?: { nickname: string }
 }
 
+interface SurveyQuestion {
+  id: string
+  question_text: string
+  question_type: 'short_answer' | 'choice_2' | 'choice_4'
+  options: string[] | null
+  order_num: number
+}
+
+interface SurveyResultRow {
+  participant_id: string
+  nickname: string
+  answers: Record<string, string>
+}
+
 interface LadderGameState {
   ladder_data: {
     lines_count: number
@@ -82,6 +96,7 @@ const GAME_TYPES: Record<string, string> = {
   quiz: '퀴즈 게임',
   drawing: '그림 그리기',
   ladder: '사다리 게임',
+  survey: '설문조사',
 }
 
 export default function RoomManagePage() {
@@ -136,6 +151,19 @@ export default function RoomManagePage() {
   // 퀴즈 진행 상태 (개인별 진행 방식)
   const [quizProgress, setQuizProgress] = useState<QuizProgress | null>(null)
 
+  // 설문조사 상태
+  const [surveyQuestions, setSurveyQuestions] = useState<SurveyQuestion[]>([])
+  const [showSurveyModal, setShowSurveyModal] = useState(false)
+  const [surveyForm, setSurveyForm] = useState({
+    question_text: '',
+    question_type: 'short_answer' as 'short_answer' | 'choice_2' | 'choice_4',
+    options: ['', ''],
+  })
+  const [editingSurveyId, setEditingSurveyId] = useState<string | null>(null)
+  const [surveyProgress, setSurveyProgress] = useState<QuizProgress | null>(null)
+  const [surveyResults, setSurveyResults] = useState<{ questions: SurveyQuestion[]; rows: SurveyResultRow[] } | null>(null)
+  const [showSurveyResults, setShowSurveyResults] = useState(false)
+
   useEffect(() => {
     fetchRoom()
     fetchParticipants()
@@ -160,6 +188,11 @@ export default function RoomManagePage() {
         if (room?.status === 'in_progress') {
           fetchLadderGame()
         }
+      } else if (room?.game_type === 'survey') {
+        fetchSurveyQuestions()
+        if (room?.status === 'in_progress') {
+          fetchSurveyProgress()
+        }
       }
     }, 2000)
 
@@ -181,6 +214,11 @@ export default function RoomManagePage() {
       fetchLadderItems()
       if (room?.status === 'in_progress') {
         fetchLadderGame()
+      }
+    } else if (room?.game_type === 'survey') {
+      fetchSurveyQuestions()
+      if (room?.status === 'in_progress') {
+        fetchSurveyProgress()
       }
     }
   }, [room?.game_type, room?.status])
@@ -464,6 +502,172 @@ export default function RoomManagePage() {
     }
   }
 
+  const fetchSurveyQuestions = async () => {
+    try {
+      const response = await apiFetch(`/api/games/survey?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setSurveyQuestions(data.questions || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch survey questions:', error)
+    }
+  }
+
+  const fetchSurveyProgress = async () => {
+    try {
+      const response = await apiFetch(`/api/games/survey/status?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setSurveyProgress({
+          completed_participants: data.completed_participants || 0,
+          total_participants: data.total_participants || 0,
+          total_questions: data.total_questions || 0
+        })
+      }
+    } catch (error) {
+      console.error('Failed to fetch survey progress:', error)
+    }
+  }
+
+  const fetchSurveyResults = async () => {
+    try {
+      const response = await apiFetch(`/api/games/survey/results?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setSurveyResults(data)
+        setShowSurveyResults(true)
+      }
+    } catch (error) {
+      console.error('Failed to fetch survey results:', error)
+    }
+  }
+
+  const handleSurveyStart = async () => {
+    if (surveyQuestions.length === 0) {
+      toast.error('설문 문항을 먼저 추가해주세요.')
+      return
+    }
+    setActionLoading(true)
+    try {
+      const response = await apiFetch('/api/games/survey/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: id, action: 'start' }),
+      })
+      if (!response.ok) {
+        const data = await response.json()
+        toast.error(data.error || '설문 시작에 실패했습니다.')
+        return
+      }
+      toast.success('설문이 시작되었습니다!')
+      await fetchRoom()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleSurveyEnd = async () => {
+    setActionLoading(true)
+    try {
+      const response = await apiFetch('/api/games/survey/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: id, action: 'end' }),
+      })
+      if (!response.ok) {
+        toast.error('설문 종료에 실패했습니다.')
+        return
+      }
+      toast.success('설문이 종료되었습니다.')
+      await fetchRoom()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleSurveySubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!surveyForm.question_text.trim()) {
+      toast.error('문항을 입력해주세요.')
+      return
+    }
+    if (surveyForm.question_type !== 'short_answer') {
+      const count = surveyForm.question_type === 'choice_2' ? 2 : 4
+      const filled = surveyForm.options.slice(0, count).filter(o => o.trim())
+      if (filled.length !== count) {
+        toast.error(`선택지 ${count}개를 모두 입력해주세요.`)
+        return
+      }
+    }
+    setActionLoading(true)
+    try {
+      const count = surveyForm.question_type === 'choice_2' ? 2 : 4
+      const payload = {
+        room_id: id,
+        question_text: surveyForm.question_text.trim(),
+        question_type: surveyForm.question_type,
+        options: surveyForm.question_type === 'short_answer'
+          ? null
+          : surveyForm.options.slice(0, count).map(o => o.trim()),
+      }
+      const url = editingSurveyId ? `/api/games/survey/${editingSurveyId}` : '/api/games/survey'
+      const method = editingSurveyId ? 'PATCH' : 'POST'
+      const response = await apiFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const data = await response.json()
+        toast.error(data.error || '저장에 실패했습니다.')
+        return
+      }
+      toast.success(editingSurveyId ? '문항이 수정되었습니다.' : '문항이 추가되었습니다.')
+      setShowSurveyModal(false)
+      resetSurveyForm()
+      await fetchSurveyQuestions()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const resetSurveyForm = () => {
+    setSurveyForm({ question_text: '', question_type: 'short_answer', options: ['', ''] })
+    setEditingSurveyId(null)
+  }
+
+  const handleEditSurveyQuestion = (q: SurveyQuestion) => {
+    setSurveyForm({
+      question_text: q.question_text,
+      question_type: q.question_type,
+      options: q.options ? [...q.options, '', '', ''].slice(0, 4) : ['', '', '', ''],
+    })
+    setEditingSurveyId(q.id)
+    setShowSurveyModal(true)
+  }
+
+  const handleDeleteSurveyQuestion = async (questionId: string) => {
+    if (!confirm('이 문항을 삭제하시겠습니까?')) return
+    try {
+      const response = await apiFetch(`/api/games/survey/${questionId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        toast.error('삭제에 실패했습니다.')
+        return
+      }
+      toast.success('문항이 삭제되었습니다.')
+      await fetchSurveyQuestions()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    }
+  }
+
   const handleStatusChange = async (newStatus: 'waiting' | 'in_progress' | 'finished') => {
     // 퀴즈 게임인 경우 퀴즈 상태 API 사용
     if (room?.game_type === 'quiz') {
@@ -495,6 +699,18 @@ export default function RoomManagePage() {
         await handleLadderStart()
       } else if (newStatus === 'finished') {
         await handleLadderEnd()
+      } else {
+        await handleRoomStatusChange(newStatus)
+      }
+      return
+    }
+
+    // 설문조사인 경우
+    if (room?.game_type === 'survey') {
+      if (newStatus === 'in_progress') {
+        await handleSurveyStart()
+      } else if (newStatus === 'finished') {
+        await handleSurveyEnd()
       } else {
         await handleRoomStatusChange(newStatus)
       }
@@ -933,6 +1149,7 @@ export default function RoomManagePage() {
   const isQuizGame = room.game_type === 'quiz'
   const isDrawingGame = room.game_type === 'drawing'
   const isLadderGame = room.game_type === 'ladder'
+  const isSurveyGame = room.game_type === 'survey'
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -1031,10 +1248,11 @@ export default function RoomManagePage() {
                     actionLoading ||
                     (isQuizGame && questions.length === 0) ||
                     (isDrawingGame && (!selectedDrawerId || drawingWords.length === 0)) ||
-                    (isLadderGame && ladderItems.length < 2)
+                    (isLadderGame && ladderItems.length < 2) ||
+                    (isSurveyGame && surveyQuestions.length === 0)
                   }
                 >
-                  {isQuizGame ? '퀴즈 시작' : isLadderGame ? '사다리 시작' : '게임 시작'}
+                  {isQuizGame ? '퀴즈 시작' : isLadderGame ? '사다리 시작' : isSurveyGame ? '설문 시작' : '게임 시작'}
                 </Button>
               )}
               {room.status === 'in_progress' && (
@@ -1071,6 +1289,11 @@ export default function RoomManagePage() {
               {isLadderGame && ladderItems.length < 2 && room.status === 'waiting' && (
                 <p className="text-xs text-amber-600 text-center">
                   최소 2개의 결과 항목을 추가해주세요
+                </p>
+              )}
+              {isSurveyGame && surveyQuestions.length === 0 && room.status === 'waiting' && (
+                <p className="text-xs text-amber-600 text-center">
+                  설문 문항을 먼저 추가해주세요
                 </p>
               )}
 
@@ -1530,6 +1753,167 @@ export default function RoomManagePage() {
             </Card>
           )}
 
+          {/* 설문조사: 문항 목록 (대기/종료 상태) */}
+          {isSurveyGame && room.status !== 'in_progress' && (
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <CardTitle>설문 문항 목록</CardTitle>
+                    <CardDescription>총 {surveyQuestions.length}개의 문항</CardDescription>
+                  </div>
+                  {room.status === 'waiting' && (
+                    <Button onClick={() => { resetSurveyForm(); setShowSurveyModal(true); }}>
+                      + 문항 추가
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {surveyQuestions.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p>설문 문항이 없습니다.</p>
+                    {room.status === 'waiting' && (
+                      <Button
+                        className="mt-4"
+                        variant="outline"
+                        onClick={() => { resetSurveyForm(); setShowSurveyModal(true); }}
+                      >
+                        첫 번째 문항 추가하기
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {surveyQuestions.map((q) => (
+                      <div key={q.id} className="p-4 border rounded-lg flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-medium text-muted-foreground">#{q.order_num}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              q.question_type === 'short_answer'
+                                ? 'bg-blue-100 text-blue-700'
+                                : q.question_type === 'choice_2'
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-green-100 text-green-700'
+                            }`}>
+                              {q.question_type === 'short_answer' ? '주관식' : q.question_type === 'choice_2' ? '2지선다' : '4지선다'}
+                            </span>
+                          </div>
+                          <p className="font-medium">{q.question_text}</p>
+                          {q.options && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                              선택지: {q.options.join(' / ')}
+                            </p>
+                          )}
+                        </div>
+                        {room.status === 'waiting' && (
+                          <div className="flex gap-2 ml-4">
+                            <Button variant="outline" size="sm" onClick={() => handleEditSurveyQuestion(q)}>수정</Button>
+                            <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700" onClick={() => handleDeleteSurveyQuestion(q.id)}>삭제</Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {room.status === 'finished' && (
+                  <div className="mt-4">
+                    <Button className="w-full" variant="outline" onClick={fetchSurveyResults}>
+                      결과 보기
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 설문조사: 진행 현황 */}
+          {isSurveyGame && room.status === 'in_progress' && surveyProgress && (
+            <Card className="border-2 border-primary">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <span className="text-2xl">📋</span>
+                  설문 진행 현황
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="p-4 bg-blue-50 rounded-lg text-center">
+                    <p className="text-sm text-muted-foreground">총 문항 수</p>
+                    <p className="text-3xl font-bold text-blue-600">{surveyProgress.total_questions}</p>
+                  </div>
+                  <div className="p-4 bg-green-50 rounded-lg text-center">
+                    <p className="text-sm text-muted-foreground">완료한 참가자</p>
+                    <p className="text-3xl font-bold text-green-600">
+                      {surveyProgress.completed_participants} / {surveyProgress.total_participants}
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-gray-100 rounded-full h-4 overflow-hidden">
+                  <div
+                    className="bg-green-500 h-full transition-all duration-500"
+                    style={{
+                      width: surveyProgress.total_participants > 0
+                        ? `${(surveyProgress.completed_participants / surveyProgress.total_participants) * 100}%`
+                        : '0%'
+                    }}
+                  />
+                </div>
+                <div className="mt-4">
+                  <Button className="w-full" variant="outline" onClick={fetchSurveyResults}>
+                    중간 결과 보기
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 설문조사: 결과 데이터프레임 테이블 */}
+          {isSurveyGame && showSurveyResults && surveyResults && (
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle>설문 결과</CardTitle>
+                  <Button variant="outline" size="sm" onClick={() => setShowSurveyResults(false)}>닫기</Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {surveyResults.rows.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-4">아직 답변이 없습니다.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr>
+                          <th className="border p-2 bg-muted text-left whitespace-nowrap">참가자</th>
+                          {surveyResults.questions.map((q) => (
+                            <th key={q.id} className="border p-2 bg-muted text-left min-w-[120px]">
+                              <div className="text-xs text-muted-foreground">Q{q.order_num}</div>
+                              <div className="truncate max-w-[150px]">{q.question_text}</div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {surveyResults.rows.map((row) => (
+                          <tr key={row.participant_id} className="hover:bg-muted/50">
+                            <td className="border p-2 font-medium whitespace-nowrap">{row.nickname}</td>
+                            {surveyResults.questions.map((q) => (
+                              <td key={q.id} className="border p-2 text-muted-foreground">
+                                {row.answers[q.id] || '-'}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* 참가자 목록 */}
           <Card>
             <CardHeader className="pb-2">
@@ -1786,6 +2170,83 @@ export default function RoomManagePage() {
                     disabled={actionLoading}
                   >
                     {actionLoading ? '저장 중...' : editingWordId ? '수정' : '추가'}
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 설문 문항 추가/수정 모달 */}
+      {showSurveyModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <h2 className="text-xl font-bold mb-4">
+                {editingSurveyId ? '문항 수정' : '새 문항 추가'}
+              </h2>
+              <form onSubmit={handleSurveySubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">문항 유형</label>
+                  <div className="flex gap-4 flex-wrap">
+                    {(['short_answer', 'choice_2', 'choice_4'] as const).map((type) => (
+                      <label key={type} className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="question_type"
+                          value={type}
+                          checked={surveyForm.question_type === type}
+                          onChange={() => setSurveyForm({ ...surveyForm, question_type: type, options: ['', '', '', ''] })}
+                        />
+                        <span>{type === 'short_answer' ? '주관식' : type === 'choice_2' ? '2지선다' : '4지선다'}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">문항</label>
+                  <textarea
+                    className="w-full px-3 py-2 border rounded-lg resize-none"
+                    rows={3}
+                    value={surveyForm.question_text}
+                    onChange={(e) => setSurveyForm({ ...surveyForm, question_text: e.target.value })}
+                    placeholder="문항을 입력하세요"
+                  />
+                </div>
+
+                {surveyForm.question_type !== 'short_answer' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">선택지</label>
+                    <div className="space-y-2">
+                      {Array.from({ length: surveyForm.question_type === 'choice_2' ? 2 : 4 }).map((_, idx) => (
+                        <Input
+                          key={idx}
+                          value={surveyForm.options[idx] || ''}
+                          onChange={(e) => {
+                            const newOptions = [...surveyForm.options]
+                            newOptions[idx] = e.target.value
+                            setSurveyForm({ ...surveyForm, options: newOptions })
+                          }}
+                          placeholder={`선택지 ${idx + 1}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => { setShowSurveyModal(false); resetSurveyForm(); }}
+                  >
+                    취소
+                  </Button>
+                  <Button type="submit" className="flex-1" disabled={actionLoading}>
+                    {actionLoading ? '저장 중...' : editingSurveyId ? '수정' : '추가'}
                   </Button>
                 </div>
               </form>

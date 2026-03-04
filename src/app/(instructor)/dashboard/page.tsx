@@ -29,6 +29,7 @@ const GAME_TYPES = [
   { value: 'quiz', label: '퀴즈 게임' },
   { value: 'drawing', label: '그림 그리기' },
   { value: 'ladder', label: '사다리 게임' },
+  { value: 'survey', label: '설문조사' },
 ]
 
 export default function InstructorDashboardPage() {
