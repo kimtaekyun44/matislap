@@ -66,7 +66,37 @@ export async function GET(request: NextRequest) {
 // 방 참여 (참가자 등록)
 export async function POST(request: NextRequest) {
   try {
-    const { roomCode, nickname } = await request.json()
+    const { roomCode, nickname, forceRejoin, participantId } = await request.json()
+
+    // forceRejoin: 활동 이력 없는 중복 참가자 재진입
+    if (forceRejoin && participantId) {
+      const { data: existingRoom } = await supabaseAdmin
+        .from('game_rooms')
+        .select('id, room_code, room_name, game_type, status')
+        .eq('room_code', roomCode.toUpperCase())
+        .single()
+
+      if (!existingRoom) {
+        return NextResponse.json({ error: '존재하지 않는 방 코드입니다.' }, { status: 404 })
+      }
+
+      const { data: rejoined } = await supabaseAdmin
+        .from('game_participants')
+        .select('id, nickname, score')
+        .eq('id', participantId)
+        .eq('room_id', existingRoom.id)
+        .single()
+
+      if (!rejoined) {
+        return NextResponse.json({ error: '참가자 정보를 찾을 수 없습니다.' }, { status: 404 })
+      }
+
+      return NextResponse.json({
+        success: true,
+        participant: { id: rejoined.id, nickname: rejoined.nickname, score: rejoined.score },
+        room: { id: existingRoom.id, room_code: existingRoom.room_code, room_name: existingRoom.room_name, game_type: existingRoom.game_type, status: existingRoom.status },
+      })
+    }
 
     if (!roomCode || !nickname) {
       return NextResponse.json(
@@ -129,9 +159,31 @@ export async function POST(request: NextRequest) {
 
     if (existingParticipant) {
       if (existingParticipant.is_active) {
+        // 활동 이력 확인 (퀴즈, 설문, 그림, 사다리)
+        const [quizCount, surveyCount, drawingCount, ladderCount] = await Promise.all([
+          supabaseAdmin.from('quiz_answers').select('*', { count: 'exact', head: true }).eq('participant_id', existingParticipant.id),
+          supabaseAdmin.from('survey_answers').select('*', { count: 'exact', head: true }).eq('participant_id', existingParticipant.id),
+          supabaseAdmin.from('drawing_guesses').select('*', { count: 'exact', head: true }).eq('participant_id', existingParticipant.id),
+          supabaseAdmin.from('ladder_selections').select('*', { count: 'exact', head: true }).eq('participant_id', existingParticipant.id),
+        ])
+
+        const hasActivity =
+          (quizCount.count ?? 0) > 0 ||
+          (surveyCount.count ?? 0) > 0 ||
+          (drawingCount.count ?? 0) > 0 ||
+          (ladderCount.count ?? 0) > 0
+
+        if (hasActivity) {
+          return NextResponse.json(
+            { error: '이미 사용 중인 닉네임입니다.' },
+            { status: 400 }
+          )
+        }
+
+        // 활동 이력 없음 → 재진입 가능 안내
         return NextResponse.json(
-          { error: '이미 사용 중인 닉네임입니다.' },
-          { status: 400 }
+          { error: '이미 입장한 닉네임입니다.', canRejoin: true, participantId: existingParticipant.id },
+          { status: 409 }
         )
       }
 

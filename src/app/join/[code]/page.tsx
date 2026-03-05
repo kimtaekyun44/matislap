@@ -35,6 +35,7 @@ export default function JoinRoomPage() {
   const [loading, setLoading] = useState(true)
   const [joining, setJoining] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [rejoinInfo, setRejoinInfo] = useState<{ participantId: string; nickname: string } | null>(null)
 
   useEffect(() => {
     fetchRoomInfo()
@@ -56,6 +57,17 @@ export default function JoinRoomPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const saveAndNavigate = (data: { participant: { id: string; nickname: string }; room: { id: string; room_code: string } }) => {
+    localStorage.setItem('participant', JSON.stringify({
+      id: data.participant.id,
+      nickname: data.participant.nickname,
+      roomId: data.room.id,
+      roomCode: data.room.room_code,
+    }))
+    toast.success('게임에 참여했습니다!')
+    router.push(`/play/${data.room.room_code}`)
   }
 
   const handleJoin = async (e: React.FormEvent) => {
@@ -85,21 +97,50 @@ export default function JoinRoomPage() {
 
       const data = await response.json()
 
+      if (response.status === 409 && data.canRejoin) {
+        // 활동 이력 없는 중복 닉네임 → 재진입 확인
+        setRejoinInfo({ participantId: data.participantId, nickname: nickname.trim() })
+        return
+      }
+
       if (!response.ok) {
         toast.error(data.error)
         return
       }
 
-      // 참가자 정보를 로컬 스토리지에 저장
-      localStorage.setItem('participant', JSON.stringify({
-        id: data.participant.id,
-        nickname: data.participant.nickname,
-        roomId: data.room.id,
-        roomCode: data.room.room_code,
-      }))
+      saveAndNavigate(data)
+    } catch {
+      toast.error('참여 중 오류가 발생했습니다.')
+    } finally {
+      setJoining(false)
+    }
+  }
 
-      toast.success('게임에 참여했습니다!')
-      router.push(`/play/${data.room.room_code}`)
+  const handleRejoin = async () => {
+    if (!rejoinInfo) return
+    setJoining(true)
+
+    try {
+      const response = await apiFetch('/api/games/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: code,
+          nickname: rejoinInfo.nickname,
+          forceRejoin: true,
+          participantId: rejoinInfo.participantId,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error)
+        setRejoinInfo(null)
+        return
+      }
+
+      saveAndNavigate(data)
     } catch {
       toast.error('참여 중 오류가 발생했습니다.')
     } finally {
@@ -140,6 +181,40 @@ export default function JoinRoomPage() {
 
   if (!room) {
     return null
+  }
+
+  // 재진입 확인 화면
+  if (rejoinInfo) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800 px-4">
+        <Card className="w-full max-w-sm text-center">
+          <CardHeader className="pb-2">
+            <div className="text-4xl mb-2">🔄</div>
+            <CardTitle className="text-lg">이미 입장한 닉네임입니다</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-bold text-foreground">{rejoinInfo.nickname}</span>(으)로 이미 입장한 이력이 있습니다.
+              <br />
+              해당 참가자로 계속 진행하시겠습니까?
+            </p>
+          </CardContent>
+          <CardFooter className="flex flex-col gap-2">
+            <Button className="w-full" onClick={handleRejoin} disabled={joining}>
+              {joining ? '진입 중...' : '계속 진행하기'}
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => setRejoinInfo(null)}
+              disabled={joining}
+            >
+              다른 닉네임 사용하기
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    )
   }
 
   return (
