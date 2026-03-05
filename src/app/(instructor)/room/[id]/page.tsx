@@ -1819,8 +1819,8 @@ export default function RoomManagePage() {
                 )}
                 {room.status === 'finished' && (
                   <div className="mt-4">
-                    <Button className="w-full" variant="outline" onClick={fetchSurveyResults}>
-                      결과 보기
+                    <Button className="w-full" variant="outline" onClick={() => router.push(`/room/${id}/survey-results`)}>
+                      결과 보기 (전체화면)
                     </Button>
                   </div>
                 )}
@@ -1861,8 +1861,8 @@ export default function RoomManagePage() {
                   />
                 </div>
                 <div className="mt-4">
-                  <Button className="w-full" variant="outline" onClick={fetchSurveyResults}>
-                    중간 결과 보기
+                  <Button className="w-full" variant="outline" onClick={() => router.push(`/room/${id}/survey-results`)}>
+                    중간 결과 보기 (전체화면)
                   </Button>
                 </div>
               </CardContent>
