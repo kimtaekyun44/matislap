@@ -932,7 +932,8 @@ export default function RoomManagePage() {
 
   const copyJoinUrl = () => {
     if (room) {
-      const url = `${window.location.origin}/join/${room.room_code}`
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
+      const url = `${window.location.origin}${basePath}/join/${room.room_code}`
       navigator.clipboard.writeText(url)
       toast.success('참여 링크가 복사되었습니다!')
     }
