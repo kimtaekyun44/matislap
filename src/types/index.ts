@@ -20,7 +20,8 @@ export enum GameType {
   QUIZ = 'quiz',
   DRAWING = 'drawing',
   LADDER = 'ladder',
-  SURVEY = 'survey'
+  SURVEY = 'survey',
+  JEOPARDY = 'jeopardy'
 }
 
 export enum RoomStatus {

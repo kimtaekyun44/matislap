@@ -8,6 +8,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Input } from '@/components/ui/input'
 import toast from 'react-hot-toast'
 import { apiFetch } from '@/lib/utils/api'
+import JeopardyUpload from '@/components/jeopardy/JeopardyUpload'
 
 interface GameRoom {
   id: string
@@ -92,11 +93,23 @@ interface LadderGameState {
   items: LadderItem[]
 }
 
+interface JeopardyQuestion {
+  id: string
+  category: string
+  points: number
+  question_type: 'short_answer' | '2지선다' | '4지선다'
+  content: string
+  options: string[]
+  answer: string
+  is_used: boolean
+}
+
 const GAME_TYPES: Record<string, string> = {
   quiz: '퀴즈 게임',
   drawing: '그림 그리기',
   ladder: '사다리 게임',
   survey: '설문조사',
+  jeopardy: '제퍼디쇼',
 }
 
 export default function RoomManagePage() {
@@ -164,6 +177,14 @@ export default function RoomManagePage() {
   const [surveyResults, setSurveyResults] = useState<{ questions: SurveyQuestion[]; rows: SurveyResultRow[] } | null>(null)
   const [showSurveyResults, setShowSurveyResults] = useState(false)
 
+  // 제퍼디 상태
+  const [jeopardyQuestions, setJeopardyQuestions] = useState<JeopardyQuestion[]>([])
+  const [jeopardyState, setJeopardyState] = useState<{
+    current_question: JeopardyQuestion | null
+    buzzer_winner: { id: string; nickname: string; score: number } | null
+    buzzer_answer: string | null
+  }>({ current_question: null, buzzer_winner: null, buzzer_answer: null })
+
   useEffect(() => {
     fetchRoom()
     fetchParticipants()
@@ -193,6 +214,11 @@ export default function RoomManagePage() {
         if (room?.status === 'in_progress') {
           fetchSurveyProgress()
         }
+      } else if (room?.game_type === 'jeopardy') {
+        fetchJeopardyQuestions()
+        if (room?.status === 'in_progress') {
+          fetchJeopardyState()
+        }
       }
     }, 2000)
 
@@ -220,8 +246,164 @@ export default function RoomManagePage() {
       if (room?.status === 'in_progress') {
         fetchSurveyProgress()
       }
+    } else if (room?.game_type === 'jeopardy') {
+      fetchJeopardyQuestions()
+      if (room?.status === 'in_progress') {
+        fetchJeopardyState()
+      }
     }
   }, [room?.game_type, room?.status])
+
+  const fetchJeopardyQuestions = async () => {
+    try {
+      const response = await apiFetch(`/api/games/jeopardy?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setJeopardyQuestions(data.questions || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch jeopardy questions:', error)
+    }
+  }
+
+  const fetchJeopardyState = async () => {
+    try {
+      const response = await apiFetch(`/api/games/jeopardy/state?room_id=${id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setJeopardyState({
+          current_question: data.current_question,
+          buzzer_winner: data.buzzer_winner,
+          buzzer_answer: data.buzzer_answer ?? null,
+        })
+      }
+    } catch (error) {
+      console.error('Failed to fetch jeopardy state:', error)
+    }
+  }
+
+  const handleJeopardyStart = async () => {
+    if (jeopardyQuestions.length === 0) {
+      toast.error('문제를 먼저 등록해주세요.')
+      return
+    }
+    setActionLoading(true)
+    try {
+      const res = await apiFetch('/api/games/jeopardy/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'start', room_id: id }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        toast.error(data.error || '시작에 실패했습니다.')
+        return
+      }
+      toast.success('제퍼디쇼가 시작되었습니다!')
+      await fetchRoom()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleJeopardyEnd = async () => {
+    setActionLoading(true)
+    try {
+      const res = await apiFetch('/api/games/jeopardy/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'end', room_id: id }),
+      })
+      if (!res.ok) {
+        toast.error('종료에 실패했습니다.')
+        return
+      }
+      toast.success('제퍼디쇼가 종료되었습니다.')
+      await fetchRoom()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleJeopardySelectQuestion = async (questionId: string) => {
+    setActionLoading(true)
+    try {
+      const res = await apiFetch('/api/games/jeopardy/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'select_question', room_id: id, question_id: questionId }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        toast.error(data.error || '문제 선택에 실패했습니다.')
+        return
+      }
+      await fetchJeopardyState()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleJeopardyJudge = async (isCorrect: boolean) => {
+    if (!jeopardyState.current_question || !jeopardyState.buzzer_winner) return
+    setActionLoading(true)
+    try {
+      const res = await apiFetch('/api/games/jeopardy/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'judge',
+          room_id: id,
+          question_id: jeopardyState.current_question.id,
+          participant_id: jeopardyState.buzzer_winner.id,
+          is_correct: isCorrect,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        toast.error(data.error || '판정에 실패했습니다.')
+        return
+      }
+      const data = await res.json()
+      if (isCorrect) {
+        toast.success(`정답! +${data.points}점`)
+      } else {
+        toast.error(`오답! -${data.points}점`)
+      }
+      await fetchJeopardyState()
+      await fetchParticipants()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleJeopardyClearQuestion = async () => {
+    setActionLoading(true)
+    try {
+      const res = await apiFetch('/api/games/jeopardy/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear_question', room_id: id }),
+      })
+      if (!res.ok) {
+        toast.error('문제 닫기에 실패했습니다.')
+        return
+      }
+      await fetchJeopardyState()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
   const fetchRoom = async () => {
     try {
@@ -717,6 +899,18 @@ export default function RoomManagePage() {
       return
     }
 
+    // 제퍼디인 경우
+    if (room?.game_type === 'jeopardy') {
+      if (newStatus === 'in_progress') {
+        await handleJeopardyStart()
+      } else if (newStatus === 'finished') {
+        await handleJeopardyEnd()
+      } else {
+        await handleRoomStatusChange(newStatus)
+      }
+      return
+    }
+
     await handleRoomStatusChange(newStatus)
   }
 
@@ -1151,6 +1345,7 @@ export default function RoomManagePage() {
   const isDrawingGame = room.game_type === 'drawing'
   const isLadderGame = room.game_type === 'ladder'
   const isSurveyGame = room.game_type === 'survey'
+  const isJeopardyGame = room.game_type === 'jeopardy'
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
@@ -1250,10 +1445,11 @@ export default function RoomManagePage() {
                     (isQuizGame && questions.length === 0) ||
                     (isDrawingGame && (!selectedDrawerId || drawingWords.length === 0)) ||
                     (isLadderGame && ladderItems.length < 2) ||
-                    (isSurveyGame && surveyQuestions.length === 0)
+                    (isSurveyGame && surveyQuestions.length === 0) ||
+                    (isJeopardyGame && jeopardyQuestions.length === 0)
                   }
                 >
-                  {isQuizGame ? '퀴즈 시작' : isLadderGame ? '사다리 시작' : isSurveyGame ? '설문 시작' : '게임 시작'}
+                  {isQuizGame ? '퀴즈 시작' : isLadderGame ? '사다리 시작' : isSurveyGame ? '설문 시작' : isJeopardyGame ? '제퍼디 시작' : '게임 시작'}
                 </Button>
               )}
               {room.status === 'in_progress' && (
@@ -1295,6 +1491,11 @@ export default function RoomManagePage() {
               {isSurveyGame && surveyQuestions.length === 0 && room.status === 'waiting' && (
                 <p className="text-xs text-amber-600 text-center">
                   설문 문항을 먼저 추가해주세요
+                </p>
+              )}
+              {isJeopardyGame && jeopardyQuestions.length === 0 && room.status === 'waiting' && (
+                <p className="text-xs text-amber-600 text-center">
+                  엑셀 파일로 문제를 먼저 등록해주세요
                 </p>
               )}
 
@@ -1406,7 +1607,7 @@ export default function RoomManagePage() {
                               {question.question_type === 'ox' ? 'O/X' : '객관식'}
                             </span>
                           </div>
-                          <p className="font-medium">{question.question_text}</p>
+                          <p className="font-medium whitespace-pre-wrap">{question.question_text}</p>
                           <p className="text-sm text-muted-foreground mt-1">
                             정답: {question.correct_answer} | {question.time_limit}초 | {question.points}점
                           </p>
@@ -1801,7 +2002,7 @@ export default function RoomManagePage() {
                               {q.question_type === 'short_answer' ? '주관식' : q.question_type === 'choice_2' ? '2지선다' : '4지선다'}
                             </span>
                           </div>
-                          <p className="font-medium">{q.question_text}</p>
+                          <p className="font-medium whitespace-pre-wrap">{q.question_text}</p>
                           {q.options && (
                             <p className="text-sm text-muted-foreground mt-1">
                               선택지: {q.options.join(' / ')}
@@ -1910,6 +2111,191 @@ export default function RoomManagePage() {
                       </tbody>
                     </table>
                   </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 제퍼디쇼: 게임 보드 (진행 중) */}
+          {isJeopardyGame && room.status === 'in_progress' && (
+            <Card className="border-2 border-primary">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span>🎯</span>
+                  제퍼디쇼 진행 중
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {jeopardyState.current_question ? (
+                  /* 문제 표시 + 버저 판정 */
+                  <div className="space-y-3">
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-0.5 rounded">
+                          {jeopardyState.current_question.category}
+                        </span>
+                        <span className="text-sm font-bold text-primary">
+                          {jeopardyState.current_question.points}점
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {jeopardyState.current_question.question_type === 'short_answer' ? '주관식' :
+                           jeopardyState.current_question.question_type === '2지선다' ? '2지선다' : '4지선다'}
+                        </span>
+                      </div>
+                      <p className="font-medium whitespace-pre-wrap text-sm mb-3">
+                        {jeopardyState.current_question.content}
+                      </p>
+                      {jeopardyState.current_question.question_type !== 'short_answer' && (
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                          {jeopardyState.current_question.options.map((opt, i) => (
+                            <div key={i} className="text-xs bg-white border rounded p-2">
+                              {opt}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        정답: <span className="font-bold text-foreground">{jeopardyState.current_question.answer}</span>
+                      </p>
+                    </div>
+
+                    {jeopardyState.buzzer_winner ? (
+                      /* 버저 당첨자 있음 → 판정 */
+                      <div className="space-y-2">
+                        <div className="p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-center">
+                          <p className="text-sm text-yellow-700">버저 선점!</p>
+                          <p className="text-xl font-bold">{jeopardyState.buzzer_winner.nickname}</p>
+                          <p className="text-xs text-muted-foreground">현재 {jeopardyState.buzzer_winner.score}점</p>
+                          {jeopardyState.buzzer_answer != null ? (
+                            <div className="mt-2 px-3 py-2 bg-white border border-yellow-400 rounded text-sm font-semibold text-gray-800">
+                              제출한 답변: {jeopardyState.buzzer_answer}
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-xs text-yellow-600 italic">답변 대기 중...</p>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => handleJeopardyJudge(true)}
+                            disabled={actionLoading}
+                          >
+                            ✓ 정답 (+{jeopardyState.current_question.points}점)
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            onClick={() => handleJeopardyJudge(false)}
+                            disabled={actionLoading}
+                          >
+                            ✗ 오답 (-{jeopardyState.current_question.points}점)
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* 버저 대기 중 */
+                      <div className="p-3 bg-muted rounded-lg text-center">
+                        <p className="text-sm text-muted-foreground">버저를 기다리는 중...</p>
+                      </div>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={handleJeopardyClearQuestion}
+                      disabled={actionLoading}
+                    >
+                      문제 닫기 (보드로 돌아가기)
+                    </Button>
+                  </div>
+                ) : (
+                  /* 보드 표시 - 행=카테고리, 열=점수 */
+                  (() => {
+                    const cats = [...new Set(jeopardyQuestions.map(q => q.category))]
+                    const pts = [...new Set(jeopardyQuestions.map(q => q.points))].sort((a, b) => a - b)
+                    return (
+                      <div className="overflow-x-auto">
+                        <p className="text-xs text-muted-foreground mb-2">문제를 클릭하면 화면에 표시됩니다</p>
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr>
+                              <th className="border px-2 py-1 bg-muted text-left">카테고리</th>
+                              {pts.map(p => (
+                                <th key={p} className="border px-2 py-1 bg-muted text-center w-14">{p}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {cats.map(cat => (
+                              <tr key={cat}>
+                                <td className="border px-2 py-1 font-medium text-sm">{cat}</td>
+                                {pts.map(p => {
+                                  const q = jeopardyQuestions.find(q => q.category === cat && q.points === p)
+                                  return (
+                                    <td key={p} className="border p-1 text-center">
+                                      {q ? (
+                                        q.is_used ? (
+                                          <span className="text-gray-300 text-lg">✓</span>
+                                        ) : (
+                                          <button
+                                            onClick={() => handleJeopardySelectQuestion(q.id)}
+                                            disabled={actionLoading}
+                                            className="w-full py-2 px-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 font-bold transition-colors disabled:opacity-50"
+                                          >
+                                            {p}
+                                          </button>
+                                        )
+                                      ) : (
+                                        <span className="text-gray-300">-</span>
+                                      )}
+                                    </td>
+                                  )
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                  })()
+                )}
+
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="w-full"
+                  onClick={handleJeopardyEnd}
+                  disabled={actionLoading}
+                >
+                  게임 종료
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 제퍼디쇼: 문제 업로드 (대기/종료 상태) */}
+          {isJeopardyGame && room.status !== 'in_progress' && (
+            <Card className="md:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">문제 등록</CardTitle>
+                <CardDescription className="text-xs">
+                  엑셀 파일로 제퍼디 문제를 일괄 등록합니다.
+                  {room.status === 'finished' && ' (종료된 게임은 문제를 수정할 수 없습니다.)'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {room.status === 'waiting' ? (
+                  <JeopardyUpload
+                    roomId={room.id}
+                    existingQuestions={jeopardyQuestions}
+                    onUploadSuccess={fetchJeopardyQuestions}
+                  />
+                ) : (
+                  jeopardyQuestions.length > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      총 {jeopardyQuestions.length}개 문제가 등록되어 있습니다.
+                    </p>
+                  )
                 )}
               </CardContent>
             </Card>

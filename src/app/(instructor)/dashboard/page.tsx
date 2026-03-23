@@ -30,6 +30,7 @@ const GAME_TYPES = [
   { value: 'drawing', label: '그림 그리기' },
   { value: 'ladder', label: '사다리 게임' },
   { value: 'survey', label: '설문조사' },
+  { value: 'jeopardy', label: '제퍼디쇼' },
 ]
 
 export default function InstructorDashboardPage() {

@@ -169,6 +169,12 @@ export default function PlayPage() {
         return
       }
 
+      // 제퍼디쇼이면 전용 페이지로 리다이렉트
+      if (roomData?.game_type === 'jeopardy') {
+        router.replace(`/play/jeopardy/${code}`)
+        return
+      }
+
       setLoading(false)
 
       if (roomData?.game_type === 'quiz' && roomData.status === 'in_progress') {
@@ -486,7 +492,7 @@ export default function PlayPage() {
                   <p className="text-xs text-muted-foreground">
                     문제 {currentQuestion.order_num} / {totalQuestions}
                   </p>
-                  <CardTitle className="text-base">{currentQuestion.question_text}</CardTitle>
+                  <CardTitle className="text-base whitespace-pre-wrap">{currentQuestion.question_text}</CardTitle>
                 </div>
                 <div className="text-right ml-2">
                   <p className={`text-2xl font-bold ${
@@ -620,7 +626,7 @@ export default function PlayPage() {
               <p className="text-xs text-muted-foreground">
                 문항 {currentSurveyQuestion.order_num} / {surveyTotalQuestions}
               </p>
-              <CardTitle className="text-base">{currentSurveyQuestion.question_text}</CardTitle>
+              <CardTitle className="text-base whitespace-pre-wrap">{currentSurveyQuestion.question_text}</CardTitle>
             </CardHeader>
             <CardContent className="px-3 pb-3">
               {currentSurveyQuestion.question_type === 'short_answer' ? (

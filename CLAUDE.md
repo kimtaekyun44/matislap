@@ -214,6 +214,36 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 - **예시**: 30초 제한, 1.2초에 응답 → 100점 × 1.48 = 148점
 - **활성화 방법**: 위 코드의 주석을 제거하면 시간 보너스가 적용됨
 
+## 🔌 MCP 서버 설정
+
+이 프로젝트는 다음 MCP 서버들을 사용합니다. 새 프로젝트 생성 시 `C:\Users\kungo\.claude.json` 파일에서 matislap 프로젝트의 MCP 설정을 복사하여 사용하세요.
+
+### 설정된 MCP 서버
+- **supabase**: 데이터베이스 연동 (SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_REF)
+- **github**: GitHub 연동
+- **notion**: Notion 문서 연동 (OPENAPI_MCP_HEADERS)
+
+### 새 프로젝트에 MCP 복사 방법
+1. `C:\Users\kungo\.claude.json` 파일 열기
+2. `projects["C:\\project\\matislap"].mcpServers` 내용 복사
+3. 새 프로젝트 경로의 `mcpServers`에 붙여넣기
+
+```json
+// 복사할 MCP 설정 위치
+"projects": {
+  "C:\\project\\matislap": {
+    "mcpServers": {
+      "supabase": { ... },
+      "github": { ... },
+      "notion": { ... }
+    }
+  },
+  "C:\\project\\new-project": {
+    "mcpServers": { /* 여기에 복사 */ }
+  }
+}
+```
+
 ## 📚 참고 자료
 - [Next.js Documentation](https://nextjs.org/docs)
 - [Supabase Documentation](https://supabase.com/docs)

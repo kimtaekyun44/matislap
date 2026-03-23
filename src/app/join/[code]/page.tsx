@@ -24,6 +24,7 @@ const GAME_TYPES: Record<string, string> = {
   drawing: '그림 그리기',
   ladder: '사다리 게임',
   survey: '설문조사',
+  jeopardy: '제퍼디쇼',
 }
 
 export default function JoinRoomPage() {
