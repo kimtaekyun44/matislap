@@ -38,6 +38,11 @@ export default function JoinRoomPage() {
   const [error, setError] = useState<string | null>(null)
   const [rejoinInfo, setRejoinInfo] = useState<{ participantId: string; nickname: string } | null>(null)
 
+  // 강사 승인이 필요한 재진입
+  const [approvalNickname, setApprovalNickname] = useState<string | null>(null)
+  const [approvalRequestId, setApprovalRequestId] = useState<string | null>(null)
+  const [approvalRejected, setApprovalRejected] = useState(false)
+
   useEffect(() => {
     fetchRoomInfo()
   }, [code])
@@ -99,8 +104,14 @@ export default function JoinRoomPage() {
       const data = await response.json()
 
       if (response.status === 409 && data.canRejoin) {
-        // 활동 이력 없는 중복 닉네임 → 재진입 확인
+        // 활동 이력 없는 중복 닉네임 → 본인 확인만으로 재진입
         setRejoinInfo({ participantId: data.participantId, nickname: nickname.trim() })
+        return
+      }
+
+      if (response.status === 409 && data.needsApproval) {
+        // 점수/선택 이력이 있는 참가자 → 강사 승인 필요
+        setApprovalNickname(nickname.trim())
         return
       }
 
@@ -149,10 +160,128 @@ export default function JoinRoomPage() {
     }
   }
 
+  // 강사 승인 요청 보내기
+  const handleRequestApproval = async () => {
+    if (!approvalNickname) return
+    setJoining(true)
+
+    try {
+      const response = await apiFetch('/api/games/rejoin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomCode: code, nickname: approvalNickname }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error)
+        return
+      }
+
+      setApprovalRequestId(data.request_id)
+      toast.success('강사에게 승인을 요청했습니다.')
+    } catch {
+      toast.error('요청 중 오류가 발생했습니다.')
+    } finally {
+      setJoining(false)
+    }
+  }
+
+  // 승인 여부 폴링
+  useEffect(() => {
+    if (!approvalRequestId) return
+
+    const check = async () => {
+      try {
+        const response = await apiFetch(
+          `/api/games/rejoin?request_id=${approvalRequestId}`
+        )
+        const data = await response.json()
+
+        if (data.status === 'approved') {
+          saveAndNavigate(data)
+        } else if (data.status === 'rejected') {
+          setApprovalRequestId(null)
+          setApprovalRejected(true)
+        }
+      } catch {
+        // 일시적인 통신 오류는 다음 폴링에서 다시 시도한다
+      }
+    }
+
+    const interval = setInterval(check, 2000)
+    return () => clearInterval(interval)
+  }, [approvalRequestId])
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800 px-4">
         <div className="text-base">방 정보 확인 중...</div>
+      </div>
+    )
+  }
+
+  // 강사 승인 대기/요청 화면
+  if (approvalNickname) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-pink-100 dark:from-gray-900 dark:to-gray-800 px-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-lg">
+              {approvalRequestId ? '강사 승인 대기 중' : '이미 사용 중인 닉네임입니다'}
+            </CardTitle>
+            <CardDescription>
+              <span className="font-bold">{approvalNickname}</span> 님은 이미 게임에
+              참여해 점수나 선택 기록이 있습니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {approvalRequestId ? (
+              <>
+                <p className="text-muted-foreground">
+                  강사가 승인하면 자동으로 입장합니다. 이 화면을 닫지 마세요.
+                </p>
+                <div className="flex items-center gap-2 text-blue-600">
+                  <span className="animate-pulse">●</span>
+                  <span>승인을 기다리는 중...</span>
+                </div>
+              </>
+            ) : approvalRejected ? (
+              <p className="text-red-600">
+                강사가 요청을 거부했습니다. 강사에게 문의하거나 다른 닉네임으로
+                참여해주세요.
+              </p>
+            ) : (
+              <p className="text-muted-foreground">
+                본인이 맞다면 강사에게 승인을 요청하세요. 요청 시 접속 정보가
+                기록되며 강사 화면에 표시됩니다.
+              </p>
+            )}
+          </CardContent>
+          <CardFooter className="flex gap-2">
+            {!approvalRequestId && (
+              <Button
+                className="flex-1"
+                onClick={handleRequestApproval}
+                disabled={joining}
+              >
+                {joining ? '요청 중...' : '승인 요청하기'}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              className={approvalRequestId ? 'flex-1' : ''}
+              onClick={() => {
+                setApprovalNickname(null)
+                setApprovalRequestId(null)
+                setApprovalRejected(false)
+              }}
+            >
+              다른 닉네임 사용
+            </Button>
+          </CardFooter>
+        </Card>
       </div>
     )
   }

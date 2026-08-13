@@ -26,6 +26,8 @@ interface LadderItem {
   id: string
   item_text: string
   position: number
+  // 참가자 수에 맞춰 자동 생성된 "다음 기회에" 항목
+  is_auto?: boolean
 }
 
 interface LadderSelection {
@@ -260,6 +262,16 @@ export default function LadderPlayPage() {
   const linesCount = ladderGame?.ladder_data?.lines_count || 0
   const selectedPositions = ladderGame?.selections.map(s => s.start_position) || []
 
+  // 번호판에서 칸마다 누가 선택했는지 바로 찾기 위한 색인
+  const selectionByPosition = new Map(
+    (ladderGame?.selections || []).map(s => [s.start_position, s])
+  )
+
+  const myResultItem =
+    mySelection?.is_revealed && mySelection.result_position !== null
+      ? ladderGame?.items.find(i => i.position === mySelection.result_position)
+      : null
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <header className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur-sm">
@@ -270,140 +282,174 @@ export default function LadderPlayPage() {
       </header>
 
       <main className="px-3 py-3 max-w-lg mx-auto space-y-4">
-        {/* 출발점 선택 */}
-        {!mySelection ? (
+        {/* 선택 전에는 번호판, 선택 후에는 요약만 */}
+        {mySelection ? (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">출발점을 선택하세요</CardTitle>
+              <CardTitle className="text-base">선택 현황</CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-4">
-                원하는 번호를 클릭하세요 (선착순)
+            <CardContent className="text-center py-2">
+              <p className="text-sm text-muted-foreground">
+                참가자 {linesCount}명 중 {selectedPositions.length}명 선택 완료
               </p>
-              <div className="grid grid-cols-4 gap-2">
-                {Array.from({ length: linesCount }, (_, i) => {
-                  const isTaken = selectedPositions.includes(i)
+              <div className="mt-3 inline-block px-6 py-3 bg-blue-100 rounded-lg">
+                <p className="text-xs text-blue-600">내가 선택한 번호</p>
+                <p className="text-3xl font-bold text-blue-700">
+                  {mySelection.start_position + 1}번
+                </p>
+              </div>
+              {!myResultItem && (
+                <p className="text-xs text-muted-foreground mt-3">
+                  결과 공개를 기다려주세요
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">번호를 선택하세요</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-3">
+              빈 칸을 눌러 선택하세요 (선착순)
+            </p>
+
+            <div className="grid grid-cols-3 gap-2">
+              {Array.from({ length: linesCount }, (_, i) => {
+                const taken = selectionByPosition.get(i)
+                const isMe = taken?.participant_id === participant.id
+
+                // 빈 칸 — 아직 선택 전이면 누를 수 있다
+                if (!taken) {
                   return (
                     <Button
                       key={i}
-                      variant={isTaken ? 'outline' : 'default'}
-                      className={`h-12 text-lg ${isTaken ? 'opacity-50' : ''}`}
-                      disabled={isTaken || selectingPosition !== null}
+                      variant="outline"
+                      className="h-14 text-lg font-bold"
+                      disabled={selectingPosition !== null}
                       onClick={() => handleSelectPosition(i)}
                     >
                       {selectingPosition === i ? '...' : i + 1}
                     </Button>
                   )
-                })}
-              </div>
-              <p className="text-xs text-muted-foreground mt-3 text-center">
-                선택 현황: {selectedPositions.length} / {linesCount}
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="py-6 text-center">
-              <div className="text-3xl mb-3">✅</div>
-              <h2 className="text-base font-bold mb-2">선택 완료!</h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                결과 공개를 기다려주세요
-              </p>
-              <div className="p-3 bg-blue-100 rounded-lg inline-block">
-                <p className="text-xs text-blue-600">내가 선택한 번호</p>
-                <p className="text-2xl font-bold text-blue-700">{mySelection.start_position + 1}</p>
-              </div>
+                }
 
-              {/* 결과가 공개된 경우 */}
-              {mySelection.is_revealed && mySelection.result_position !== null && (
-                <div className="mt-4 p-4 bg-green-100 rounded-lg">
-                  <p className="text-xs text-green-600 mb-1">나의 결과</p>
-                  <p className="text-xl font-bold text-green-700">
-                    {ladderGame?.items.find(i => i.position === mySelection.result_position)?.item_text || '???'}
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* 전체 현황 */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">참가자 현황</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {ladderGame?.selections.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-2">
-                아직 선택한 참가자가 없습니다
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {ladderGame?.selections.map((selection) => {
-                  const resultItem = selection.is_revealed && selection.result_position !== null
-                    ? ladderGame.items.find(i => i.position === selection.result_position)
+                // 선택된 칸 — 번호 대신 그 사람의 이름
+                const resultItem =
+                  taken.is_revealed && taken.result_position !== null
+                    ? ladderGame?.items.find(x => x.position === taken.result_position)
                     : null
-                  const isMe = selection.participant_id === participant.id
 
-                  return (
-                    <div
-                      key={selection.id}
-                      className={`p-2 rounded-lg flex justify-between items-center text-sm ${
-                        isMe ? 'bg-blue-50 border border-blue-200' : 'bg-muted'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-medium">
-                          {selection.start_position + 1}
-                        </span>
-                        <span className={isMe ? 'font-bold' : ''}>
-                          {selection.game_participants?.nickname || '알 수 없음'}
-                          {isMe && ' (나)'}
-                        </span>
-                      </div>
-                      {selection.is_revealed && resultItem && (
-                        <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">
-                          {resultItem.item_text}
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* 결과 항목 미리보기 */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">도착 결과</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-2">
-              {ladderGame?.items.map((item, idx) => {
-                const revealedSelection = ladderGame.selections.find(
-                  s => s.is_revealed && s.result_position === item.position
-                )
                 return (
                   <div
-                    key={item.id}
-                    className={`p-2 rounded-lg text-center text-xs ${
-                      revealedSelection
-                        ? 'bg-green-100 text-green-700 border border-green-300'
-                        : 'bg-muted'
+                    key={i}
+                    className={`h-14 rounded-md border flex flex-col items-center justify-center px-1 overflow-hidden ${
+                      isMe
+                        ? 'bg-blue-100 border-blue-400'
+                        : 'bg-slate-100 border-slate-200'
                     }`}
                   >
-                    <span className="font-medium">{idx + 1}. {item.item_text}</span>
-                    {revealedSelection && (
-                      <p className="text-xs mt-0.5 opacity-75">
-                        {revealedSelection.game_participants?.nickname}
-                      </p>
+                    <span
+                      className={`text-xs leading-tight truncate max-w-full ${
+                        isMe ? 'font-bold text-blue-700' : 'text-slate-600'
+                      }`}
+                      title={taken.game_participants?.nickname || ''}
+                    >
+                      {taken.game_participants?.nickname || '알 수 없음'}
+                      {isMe && ' (나)'}
+                    </span>
+                    {resultItem && (
+                      <span className="text-[10px] leading-tight text-green-700 truncate max-w-full">
+                        {resultItem.item_text}
+                      </span>
                     )}
                   </div>
                 )
               })}
             </div>
+
+            <p className="text-xs text-muted-foreground mt-3 text-center">
+              선택 {selectedPositions.length} / {linesCount} · 남은 칸{' '}
+              {linesCount - selectedPositions.length}개
+            </p>
+          </CardContent>
+        </Card>
+        )}
+
+        {/* 당첨 항목만 표시. "다음 기회에"는 목록에서 제외한다 */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">당첨 결과</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {ladderGame?.items
+                .filter(item => !item.is_auto)
+                .map((item) => {
+                  const winner = ladderGame.selections.find(
+                    s => s.is_revealed && s.result_position === item.position
+                  )
+                  const isMe = winner?.participant_id === participant.id
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-3 rounded-lg flex justify-between items-center text-sm border ${
+                        isMe
+                          ? 'bg-green-100 border-green-400'
+                          : winner
+                          ? 'bg-green-50 border-green-200'
+                          : 'bg-muted border-transparent'
+                      }`}
+                    >
+                      <span className="font-medium">{item.item_text}</span>
+                      {winner ? (
+                        <span className={isMe ? 'font-bold text-green-700' : 'text-green-700'}>
+                          🎉 {winner.game_participants?.nickname || '알 수 없음'}
+                          {isMe && ' (나)'}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">공개 전</span>
+                      )}
+                    </div>
+                  )
+                })}
+            </div>
+
+            {/* 하단에 내 결과 */}
+            {mySelection && (
+              <div className="mt-4 pt-3 border-t">
+                {myResultItem ? (
+                  <div
+                    className={`p-3 rounded-lg text-center ${
+                      myResultItem.is_auto ? 'bg-slate-100' : 'bg-green-100'
+                    }`}
+                  >
+                    <p
+                      className={`text-xs mb-1 ${
+                        myResultItem.is_auto ? 'text-slate-500' : 'text-green-600'
+                      }`}
+                    >
+                      나의 결과 ({mySelection.start_position + 1}번)
+                    </p>
+                    <p
+                      className={`text-xl font-bold ${
+                        myResultItem.is_auto ? 'text-slate-500' : 'text-green-700'
+                      }`}
+                    >
+                      {myResultItem.is_auto
+                        ? '다음 기회에 😢'
+                        : `🎉 ${myResultItem.item_text}`}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-center text-muted-foreground py-2">
+                    나의 결과 ({mySelection.start_position + 1}번) · 공개 대기 중
+                  </p>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       </main>

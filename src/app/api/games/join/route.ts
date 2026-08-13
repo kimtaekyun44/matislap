@@ -133,21 +133,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 현재 참가자 수 확인
-    const { count } = await supabaseAdmin
-      .from('game_participants')
-      .select('*', { count: 'exact', head: true })
-      .eq('room_id', room.id)
-      .eq('is_active', true)
-
-    if (count && count >= room.max_participants) {
-      return NextResponse.json(
-        { error: '참가자 수가 가득 찼습니다.' },
-        { status: 400 }
-      )
-    }
-
-    // 닉네임 중복 확인
+    // 닉네임 중복(= 기존 참가자) 확인을 정원 검사보다 먼저 한다.
+    // 기존 참가자는 이미 정원에 포함된 사람이라, 방이 가득 찼다는 이유로
+    // 자기 자리로 돌아오지 못하면 안 된다. 정원 검사는 신규 참가자에게만 적용한다.
     const { data: existingParticipant } = await supabaseAdmin
       .from('game_participants')
       .select('id, is_active')
@@ -174,9 +162,15 @@ export async function POST(request: NextRequest) {
           (ladderCount.count ?? 0) > 0
 
         if (hasActivity) {
+          // 점수나 선택 이력이 있는 참가자다. 닉네임만으로는 본인인지 알 수 없고
+          // 가로채면 남의 점수/자리를 뺏는 셈이므로 강사 승인을 받게 한다.
           return NextResponse.json(
-            { error: '이미 사용 중인 닉네임입니다.' },
-            { status: 400 }
+            {
+              error: '이미 사용 중인 닉네임입니다.',
+              needsApproval: true,
+              participantId: existingParticipant.id,
+            },
+            { status: 409 }
           )
         }
 
@@ -209,6 +203,20 @@ export async function POST(request: NextRequest) {
 
       participant = data
     } else {
+      // 신규 참가자만 정원 검사
+      const { count } = await supabaseAdmin
+        .from('game_participants')
+        .select('*', { count: 'exact', head: true })
+        .eq('room_id', room.id)
+        .eq('is_active', true)
+
+      if (count && count >= room.max_participants) {
+        return NextResponse.json(
+          { error: '참가자 수가 가득 찼습니다.' },
+          { status: 400 }
+        )
+      }
+
       // 새 참가자 등록
       const { data, error } = await supabaseAdmin
         .from('game_participants')

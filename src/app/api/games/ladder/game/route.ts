@@ -121,17 +121,63 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === 'start') {
-    // 결과 항목 개수 확인
-    const { data: items } = await supabaseAdmin
+    // 이전 게임에서 자동 생성된 항목은 먼저 걷어낸다 (재시작 시 누적 방지)
+    await supabaseAdmin
       .from('ladder_items')
-      .select('id')
+      .delete()
       .eq('room_id', room_id)
+      .eq('is_auto', true)
 
-    if (!items || items.length < 2) {
-      return NextResponse.json({ error: '최소 2개의 결과 항목이 필요합니다.' }, { status: 400 })
+    // 강사가 직접 등록한 당첨 항목
+    const { data: manualItems } = await supabaseAdmin
+      .from('ladder_items')
+      .select('id, position')
+      .eq('room_id', room_id)
+      .order('position', { ascending: true })
+
+    if (!manualItems || manualItems.length < 1) {
+      return NextResponse.json({ error: '최소 1개의 결과 항목이 필요합니다.' }, { status: 400 })
     }
 
-    const linesCount = items.length
+    // 항목 삭제로 position에 구멍이 생겼을 수 있으므로 0부터 다시 붙인다.
+    // (구멍이 있으면 도착 지점에 해당하는 항목을 찾지 못해 결과가 '???'로 표시됨)
+    for (let i = 0; i < manualItems.length; i++) {
+      if (manualItems[i].position !== i) {
+        await supabaseAdmin
+          .from('ladder_items')
+          .update({ position: i })
+          .eq('id', manualItems[i].id)
+      }
+    }
+
+    // 실제 입장한 참가자 수만큼 줄을 만든다
+    const { count: participantCount } = await supabaseAdmin
+      .from('game_participants')
+      .select('*', { count: 'exact', head: true })
+      .eq('room_id', room_id)
+      .eq('is_active', true)
+
+    // 참가자가 항목보다 적으면 항목 수를 그대로 쓴다 (항목을 임의로 버리지 않음)
+    const linesCount = Math.max(manualItems.length, participantCount || 0)
+
+    // 부족한 만큼 "다음 기회에" 항목을 채운다
+    const fillCount = linesCount - manualItems.length
+    if (fillCount > 0) {
+      const fillItems = Array.from({ length: fillCount }, (_, i) => ({
+        room_id,
+        item_text: '다음 기회에',
+        position: manualItems.length + i,
+        is_auto: true,
+      }))
+
+      const { error: fillError } = await supabaseAdmin
+        .from('ladder_items')
+        .insert(fillItems)
+
+      if (fillError) {
+        return NextResponse.json({ error: fillError.message }, { status: 500 })
+      }
+    }
 
     // 기존 사다리 데이터 삭제
     await supabaseAdmin.from('ladder_data').delete().eq('room_id', room_id)
@@ -159,7 +205,12 @@ export async function POST(request: NextRequest) {
       .update({ status: 'in_progress', started_at: new Date().toISOString() })
       .eq('id', room_id)
 
-    return NextResponse.json({ success: true, lines_count: linesCount })
+    return NextResponse.json({
+      success: true,
+      lines_count: linesCount,
+      manual_count: manualItems.length,
+      auto_count: fillCount,
+    })
   }
 
   if (action === 'reveal') {
@@ -214,6 +265,69 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, result_position: resultPosition })
+  }
+
+  // 당첨 항목을 클릭해 그 자리에 도착한 참가자를 공개한다 (항목 중심 공개)
+  if (action === 'reveal_position') {
+    const { position } = body
+
+    if (position === undefined || position === null) {
+      return NextResponse.json({ error: 'position이 필요합니다.' }, { status: 400 })
+    }
+
+    const { data: ladderData } = await supabaseAdmin
+      .from('ladder_data')
+      .select('horizontal_lines')
+      .eq('room_id', room_id)
+      .single()
+
+    if (!ladderData) {
+      return NextResponse.json({ error: '사다리 데이터를 찾을 수 없습니다.' }, { status: 404 })
+    }
+
+    const { data: selections } = await supabaseAdmin
+      .from('ladder_selections')
+      .select('*, game_participants (nickname)')
+      .eq('room_id', room_id)
+
+    if (!selections || selections.length === 0) {
+      return NextResponse.json({ error: '아직 선택한 참가자가 없습니다.' }, { status: 400 })
+    }
+
+    const lines = ladderData.horizontal_lines as HorizontalLine[]
+
+    // 도착 지점이 이 항목인 참가자를 찾는다 (사다리는 1:1 대응이라 최대 한 명)
+    const winner = selections.find(
+      (selection) => calculateResult(selection.start_position, lines) === position
+    )
+
+    if (!winner) {
+      return NextResponse.json({
+        success: true,
+        winner: null,
+        message: '이 자리에 도착한 참가자가 없습니다.',
+      })
+    }
+
+    // 아직 공개 전이면 결과를 저장한다
+    if (!winner.is_revealed) {
+      const { error } = await supabaseAdmin
+        .from('ladder_selections')
+        .update({ result_position: position, is_revealed: true })
+        .eq('id', winner.id)
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      winner: {
+        nickname: winner.game_participants?.nickname || '알 수 없음',
+        start_position: winner.start_position,
+      },
+    })
   }
 
   if (action === 'end') {

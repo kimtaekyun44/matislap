@@ -48,6 +48,14 @@ interface QuizQuestion {
   order_num: number
 }
 
+interface RejoinRequest {
+  id: string
+  nickname: string
+  ip_address: string | null
+  user_agent: string | null
+  created_at: string
+}
+
 interface QuizHistoryEntry {
   id: string
   question_id: string
@@ -71,6 +79,8 @@ interface LadderItem {
   id: string
   item_text: string
   position: number
+  // 참가자 수에 맞춰 자동 생성된 "다음 기회에" 항목
+  is_auto?: boolean
 }
 
 interface LadderSelection {
@@ -242,6 +252,9 @@ export default function RoomManagePage() {
   })
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
 
+  // 재진입 승인 요청
+  const [rejoinRequests, setRejoinRequests] = useState<RejoinRequest[]>([])
+
   // 퀴즈 변경 이력 모달 상태
   const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [historyEntries, setHistoryEntries] = useState<QuizHistoryEntry[]>([])
@@ -302,12 +315,14 @@ export default function RoomManagePage() {
   useEffect(() => {
     fetchRoom()
     fetchParticipants()
+    fetchRejoinRequests()
   }, [id])
 
   // 별도 폴링 - room 상태 변경 시 재설정
   useEffect(() => {
     const interval = setInterval(() => {
       fetchParticipants()
+      fetchRejoinRequests()
       if (room?.game_type === 'quiz') {
         fetchQuestions()
         if (room?.status === 'in_progress') {
@@ -650,8 +665,8 @@ export default function RoomManagePage() {
   }
 
   const handleLadderStart = async () => {
-    if (ladderItems.length < 2) {
-      toast.error('최소 2개의 결과 항목이 필요합니다.')
+    if (ladderItems.length < 1) {
+      toast.error('최소 1개의 결과 항목이 필요합니다.')
       return
     }
 
@@ -669,9 +684,15 @@ export default function RoomManagePage() {
         return
       }
 
-      toast.success('사다리 게임이 시작되었습니다!')
+      const data = await response.json()
+      toast.success(
+        data.auto_count > 0
+          ? `사다리 시작! 당첨 ${data.manual_count}개 + 다음 기회에 ${data.auto_count}개 = ${data.lines_count}줄`
+          : '사다리 게임이 시작되었습니다!'
+      )
       await fetchRoom()
       await fetchLadderGame()
+      await fetchLadderItems()
     } catch {
       toast.error('오류가 발생했습니다.')
     } finally {
@@ -679,22 +700,68 @@ export default function RoomManagePage() {
     }
   }
 
-  const handleLadderReveal = async (participantId: string) => {
+  const fetchRejoinRequests = async () => {
+    try {
+      const response = await apiFetch(`/api/games/rejoin?room_id=${id}`)
+      if (!response.ok) return
+      const data = await response.json()
+      setRejoinRequests(data.requests || [])
+    } catch (error) {
+      console.error('재진입 요청 조회 오류:', error)
+    }
+  }
+
+  const handleRejoinDecision = async (
+    requestId: string,
+    action: 'approve' | 'reject'
+  ) => {
+    setActionLoading(true)
+    try {
+      const response = await apiFetch('/api/games/rejoin', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, action }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || '처리에 실패했습니다.')
+        return
+      }
+
+      toast.success(action === 'approve' ? '재진입을 승인했습니다.' : '요청을 거부했습니다.')
+      await fetchRejoinRequests()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // 당첨 항목을 눌러 그 자리에 도착한 참가자를 공개
+  const handleLadderRevealPosition = async (position: number) => {
     setActionLoading(true)
     try {
       const response = await apiFetch('/api/games/ladder/game', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room_id: id, action: 'reveal', participant_id: participantId }),
+        body: JSON.stringify({ room_id: id, action: 'reveal_position', position }),
       })
 
+      const data = await response.json()
+
       if (!response.ok) {
-        const data = await response.json()
         toast.error(data.error || '결과 공개에 실패했습니다.')
         return
       }
 
-      toast.success('결과가 공개되었습니다!')
+      if (!data.winner) {
+        toast(data.message || '이 자리에 도착한 참가자가 없습니다.')
+      } else {
+        toast.success(`🎉 ${data.winner.nickname} 님 당첨!`)
+      }
+
       await fetchLadderGame()
     } catch {
       toast.error('오류가 발생했습니다.')
@@ -1530,6 +1597,17 @@ export default function RoomManagePage() {
   }
 
   const activeParticipants = participants.filter(p => p.is_active)
+  const activeParticipantCount = activeParticipants.length
+
+  // 점수가 하나도 없으면 순위가 무의미하다 (사다리·설문은 점수를 쓰지 않고,
+  // 퀴즈도 시작 직후에는 전원 0점이라 입력 순서가 그대로 메달이 되어버린다)
+  const hasAnyScore = activeParticipants.some(p => p.score > 0)
+
+  // 사다리 시작 시 만들어질 줄 수 미리보기 (서버의 계산과 동일한 규칙)
+  const ladderManualItems = ladderItems.filter(item => !item.is_auto)
+  const ladderLinesPreview = Math.max(ladderManualItems.length, activeParticipantCount)
+  const ladderFillCount = ladderLinesPreview - ladderManualItems.length
+
   const isQuizGame = room.game_type === 'quiz'
   const isDrawingGame = room.game_type === 'drawing'
   const isLadderGame = room.game_type === 'ladder'
@@ -1633,7 +1711,7 @@ export default function RoomManagePage() {
                     actionLoading ||
                     (isQuizGame && questions.length === 0) ||
                     (isDrawingGame && (!selectedDrawerId || drawingWords.length === 0)) ||
-                    (isLadderGame && ladderItems.length < 2) ||
+                    (isLadderGame && ladderItems.length < 1) ||
                     (isSurveyGame && surveyQuestions.length === 0) ||
                     (isJeopardyGame && jeopardyQuestions.length === 0)
                   }
@@ -1672,10 +1750,30 @@ export default function RoomManagePage() {
                   제시어를 먼저 추가해주세요
                 </p>
               )}
-              {isLadderGame && ladderItems.length < 2 && room.status === 'waiting' && (
+              {isLadderGame && ladderItems.length < 1 && room.status === 'waiting' && (
                 <p className="text-xs text-amber-600 text-center">
-                  최소 2개의 결과 항목을 추가해주세요
+                  결과 항목을 최소 1개 추가해주세요
                 </p>
+              )}
+              {/* 시작 전에 몇 줄짜리 사다리가 만들어질지 미리 보여준다 */}
+              {isLadderGame && ladderItems.length >= 1 && room.status === 'waiting' && (
+                <div className="text-xs text-center text-muted-foreground space-y-0.5">
+                  {ladderFillCount > 0 ? (
+                    <p>
+                      당첨 <strong className="text-foreground">{ladderManualItems.length}개</strong>
+                      {' + '}
+                      다음 기회에 <strong className="text-foreground">{ladderFillCount}개</strong>
+                      {' = '}
+                      <strong className="text-foreground">{ladderLinesPreview}줄</strong>
+                    </p>
+                  ) : (
+                    <p>
+                      항목 <strong className="text-foreground">{ladderManualItems.length}개</strong>로{' '}
+                      <strong className="text-foreground">{ladderLinesPreview}줄</strong> 사다리
+                    </p>
+                  )}
+                  <p>참가자 {activeParticipantCount}명 · 시작 시점 인원에 맞춰 자동 생성됩니다</p>
+                </div>
               )}
               {isSurveyGame && surveyQuestions.length === 0 && room.status === 'waiting' && (
                 <p className="text-xs text-amber-600 text-center">
@@ -2005,7 +2103,11 @@ export default function RoomManagePage() {
                 <div className="flex justify-between items-center">
                   <div>
                     <CardTitle>결과 항목</CardTitle>
-                    <CardDescription>총 {ladderItems.length}개의 항목</CardDescription>
+                    <CardDescription>
+                      당첨 {ladderManualItems.length}개
+                      {ladderItems.length > ladderManualItems.length &&
+                        ` · 자동 생성 ${ladderItems.length - ladderManualItems.length}개`}
+                    </CardDescription>
                   </div>
                   {room.status === 'waiting' && (
                     <Button onClick={() => { resetLadderForm(); setShowLadderModal(true); }}>
@@ -2036,12 +2138,21 @@ export default function RoomManagePage() {
                         className="p-3 border rounded-lg flex justify-between items-center"
                       >
                         <div className="flex items-center gap-3">
-                          <span className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium">
+                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                            item.is_auto ? 'bg-slate-100 text-slate-400' : 'bg-primary/10'
+                          }`}>
                             {idx + 1}
                           </span>
-                          <span className="font-medium">{item.item_text}</span>
+                          <span className={item.is_auto ? 'text-slate-400' : 'font-medium'}>
+                            {item.item_text}
+                          </span>
+                          {item.is_auto && (
+                            <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-500">
+                              자동 생성
+                            </span>
+                          )}
                         </div>
-                        {room.status === 'waiting' && (
+                        {room.status === 'waiting' && !item.is_auto && (
                           <div className="flex gap-2">
                             <Button
                               variant="outline"
@@ -2081,80 +2192,50 @@ export default function RoomManagePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* 참가자 선택 현황 및 결과 공개 */}
+                {/* 당첨 항목만 표시. 누르면 그 자리에 도착한 참가자가 공개된다 */}
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">참가자 결과</p>
+                  <p className="text-sm font-medium">당첨 항목</p>
                   {ladderGame.selections.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">
-                      아직 참가자가 출발점을 선택하지 않았습니다.
+                      아직 참가자가 번호를 선택하지 않았습니다.
                     </p>
                   ) : (
                     <div className="space-y-2">
-                      {ladderGame.selections.map((selection) => {
-                        const resultItem = selection.is_revealed && selection.result_position !== null
-                          ? ladderGame.items.find(i => i.position === selection.result_position)
-                          : null
-                        return (
-                          <div
-                            key={selection.id}
-                            className="p-3 border rounded-lg flex justify-between items-center"
-                          >
-                            <div className="flex items-center gap-3">
-                              <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-medium">
-                                {selection.start_position + 1}
-                              </span>
-                              <span className="font-medium">
-                                {selection.game_participants?.nickname || '알 수 없음'}
-                              </span>
-                              {selection.is_revealed && resultItem && (
-                                <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-sm">
-                                  → {resultItem.item_text}
-                                </span>
-                              )}
-                            </div>
-                            {!selection.is_revealed && (
-                              <Button
-                                size="sm"
-                                onClick={() => handleLadderReveal(selection.participant_id)}
-                                disabled={actionLoading}
-                              >
-                                결과 공개
-                              </Button>
-                            )}
-                          </div>
-                        )
-                      })}
+                      {ladderGame.items
+                        .filter(item => !item.is_auto)
+                        .map((item) => {
+                          const winner = ladderGame.selections.find(
+                            s => s.is_revealed && s.result_position === item.position
+                          )
+
+                          return (
+                            <button
+                              key={item.id}
+                              onClick={() => handleLadderRevealPosition(item.position)}
+                              disabled={actionLoading || !!winner}
+                              className={`w-full p-4 rounded-lg border-2 text-left transition-colors ${
+                                winner
+                                  ? 'bg-green-50 border-green-300 cursor-default'
+                                  : 'bg-white border-dashed hover:border-primary hover:bg-primary/5'
+                              }`}
+                            >
+                              <div className="flex justify-between items-center gap-3">
+                                <span className="font-bold">{item.item_text}</span>
+                                {winner ? (
+                                  <span className="px-3 py-1 bg-green-600 text-white rounded-full text-sm font-medium">
+                                    🎉 {winner.game_participants?.nickname || '알 수 없음'}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">
+                                    눌러서 당첨자 확인
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          )
+                        })}
                     </div>
                   )}
-                </div>
-
-                {/* 결과 항목 목록 (하단) */}
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">도착 결과</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {ladderGame.items.map((item, idx) => {
-                      const revealedSelection = ladderGame.selections.find(
-                        s => s.is_revealed && s.result_position === item.position
-                      )
-                      return (
-                        <div
-                          key={item.id}
-                          className={`p-2 rounded-lg text-center text-sm ${
-                            revealedSelection
-                              ? 'bg-green-100 text-green-700 border-2 border-green-300'
-                              : 'bg-muted'
-                          }`}
-                        >
-                          <span className="font-medium">{idx + 1}. {item.item_text}</span>
-                          {revealedSelection && (
-                            <p className="text-xs mt-1">
-                              {revealedSelection.game_participants?.nickname}
-                            </p>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
                 </div>
 
                 <Button
@@ -2524,6 +2605,51 @@ export default function RoomManagePage() {
                   새로고침
                 </Button>
               </div>
+
+              {/* 같은 닉네임으로 재진입하려는 요청 (본인 확인이 불가능하므로 강사가 판단) */}
+              {rejoinRequests.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm font-medium text-amber-700">
+                    🔔 재진입 승인 요청 {rejoinRequests.length}건
+                  </p>
+                  {rejoinRequests.map((req) => (
+                    <div
+                      key={req.id}
+                      className="p-3 rounded-lg border-2 border-amber-300 bg-amber-50"
+                    >
+                      <p className="text-sm">
+                        <strong>{req.nickname}</strong> 님이 재진입을 요청했습니다
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {new Date(req.created_at).toLocaleTimeString('ko-KR')}
+                        {req.ip_address && ` · IP ${req.ip_address}`}
+                      </p>
+                      <p className="text-xs text-amber-700 mt-1">
+                        본인이 맞는지 확인 후 승인하세요
+                      </p>
+                      <div className="flex gap-2 mt-2">
+                        <Button
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => handleRejoinDecision(req.id, 'approve')}
+                          disabled={actionLoading}
+                        >
+                          승인
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => handleRejoinDecision(req.id, 'reject')}
+                          disabled={actionLoading}
+                        >
+                          거부
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               {activeParticipants.length === 0 ? (
@@ -2543,12 +2669,13 @@ export default function RoomManagePage() {
                       className="flex flex-col items-center p-2 bg-muted rounded-lg"
                     >
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm mb-1 ${
+                        !hasAnyScore ? 'bg-primary/10' :
                         index === 0 ? 'bg-yellow-400 text-yellow-900' :
                         index === 1 ? 'bg-gray-300 text-gray-700' :
                         index === 2 ? 'bg-amber-600 text-amber-100' :
                         'bg-primary/10'
                       }`}>
-                        {index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1}
+                        {hasAnyScore && index < 3 ? ['🥇', '🥈', '🥉'][index] : index + 1}
                       </div>
                       <p className="text-xs font-medium text-center truncate w-full">
                         {participant.nickname}
