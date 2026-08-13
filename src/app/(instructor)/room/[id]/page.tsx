@@ -48,6 +48,18 @@ interface QuizQuestion {
   order_num: number
 }
 
+interface QuizHistoryEntry {
+  id: string
+  question_id: string
+  action: 'create' | 'update' | 'delete'
+  instructor_name: string | null
+  room_status: string | null
+  order_num: number | null
+  changed_fields: Record<string, { before: unknown; after: unknown }>
+  snapshot: Record<string, unknown> | null
+  created_at: string
+}
+
 interface DrawingWord {
   id: string
   word: string
@@ -112,6 +124,101 @@ const GAME_TYPES: Record<string, string> = {
   jeopardy: '제퍼디쇼',
 }
 
+const QUIZ_HISTORY_ACTIONS: Record<string, string> = {
+  create: '생성',
+  update: '수정',
+  delete: '삭제',
+}
+
+const QUIZ_FIELD_LABELS: Record<string, string> = {
+  question_text: '문제',
+  question_type: '유형',
+  options: '선택지',
+  correct_answer: '정답',
+  time_limit: '제한시간',
+  points: '배점',
+  order_num: '순서',
+}
+
+const QUIZ_QUESTION_TYPES: Record<string, string> = {
+  multiple_choice: '객관식',
+  ox: 'O/X',
+}
+
+// 선택지 → 정답 순으로 읽어야 "몇 번이 정답인지"가 자연스럽게 이어진다
+const QUIZ_FIELD_ORDER = [
+  'question_text',
+  'question_type',
+  'options',
+  'correct_answer',
+  'time_limit',
+  'points',
+  'order_num',
+]
+
+// 이력에 저장된 값(문자열/숫자/배열)을 한 줄로 보여주기 위한 변환
+const formatHistoryValue = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '(없음)'
+  if (Array.isArray(value)) return value.join(', ')
+  if (typeof value === 'object') return JSON.stringify(value)
+  if (value === 'multiple_choice' || value === 'ox') {
+    return QUIZ_QUESTION_TYPES[value]
+  }
+  return String(value)
+}
+
+/**
+ * 이력 항목에서 변경 전/후의 선택지와 문제 유형을 복원한다.
+ * 값이 바뀌지 않은 필드는 changed_fields에 없으므로, 그 경우 snapshot(변경 후 전체 값)을
+ * 전/후 양쪽에 그대로 쓴다. 정답 번호를 매기려면 해당 시점의 선택지 배열이 반드시 필요하다.
+ */
+const resolveHistoryContext = (entry: QuizHistoryEntry) => {
+  const pick = (field: 'options' | 'question_type') => {
+    const change = entry.changed_fields[field]
+    if (change) return { before: change.before, after: change.after }
+    const current = entry.snapshot?.[field] ?? null
+    return { before: current, after: current }
+  }
+
+  return { options: pick('options'), questionType: pick('question_type') }
+}
+
+// 정해진 순서대로 정렬하되, 목록에 없는 필드가 생겨도 누락되지 않게 뒤에 붙인다
+const orderChangedFields = (changedFields: Record<string, unknown>) => [
+  ...QUIZ_FIELD_ORDER.filter((field) => changedFields[field]),
+  ...Object.keys(changedFields).filter(
+    (field) => !QUIZ_FIELD_ORDER.includes(field)
+  ),
+]
+
+// 정답 텍스트가 선택지 중 몇 번인지 찾는다 (일치하는 선택지가 없으면 null)
+const findOptionNumber = (options: unknown, answer: unknown): number | null => {
+  if (!Array.isArray(options)) return null
+  const index = options.findIndex((option) => String(option) === String(answer))
+  return index >= 0 ? index + 1 : null
+}
+
+/**
+ * 선택지를 번호 기준으로 짝지어 비교한다.
+ * 선택지 개수가 바뀐 경우(2지 → 4지 등)를 위해 긴 쪽 길이를 기준으로 맞춘다.
+ */
+const buildOptionRows = (before: unknown, after: unknown) => {
+  const beforeList = Array.isArray(before) ? before : []
+  const afterList = Array.isArray(after) ? after : []
+  const length = Math.max(beforeList.length, afterList.length)
+
+  return Array.from({ length }, (_, index) => {
+    const prev = beforeList[index] ?? null
+    const next = afterList[index] ?? null
+    return {
+      number: index + 1,
+      before: prev,
+      after: next,
+      changed: JSON.stringify(prev) !== JSON.stringify(next),
+    }
+  })
+}
+
 export default function RoomManagePage() {
   const params = useParams()
   const id = params.id as string
@@ -134,6 +241,13 @@ export default function RoomManagePage() {
     points: 100,
   })
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
+
+  // 퀴즈 변경 이력 모달 상태
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [historyEntries, setHistoryEntries] = useState<QuizHistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  // null이면 방 전체 이력, 값이 있으면 해당 문제만
+  const [historyQuestionId, setHistoryQuestionId] = useState<string | null>(null)
 
   // 그림 그리기 추가 모달 상태
   const [showDrawingModal, setShowDrawingModal] = useState(false)
@@ -1228,6 +1342,81 @@ export default function RoomManagePage() {
     setShowQuizModal(true)
   }
 
+  const openQuizHistory = async (questionId: string | null) => {
+    setHistoryQuestionId(questionId)
+    setShowHistoryModal(true)
+    setHistoryLoading(true)
+
+    try {
+      const query = questionId ? `&question_id=${questionId}` : ''
+      const res = await apiFetch(`/api/games/quiz/history?room_id=${id}${query}`)
+      const data = await res.json()
+
+      if (!res.ok) {
+        toast.error(data.error || '이력을 불러오지 못했습니다.')
+        setHistoryEntries([])
+        return
+      }
+
+      setHistoryEntries(data.history || [])
+    } catch (error) {
+      console.error('퀴즈 이력 조회 오류:', error)
+      toast.error('이력을 불러오지 못했습니다.')
+      setHistoryEntries([])
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const handleDownloadQuizPDF = () => {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    const questionsHTML = questions.map((q, i) => {
+      const optionsHTML = q.question_type === 'ox'
+        ? '<p style="margin:4px 0;color:#555;">선택지: O / X</p>'
+        : q.options.map((opt, idx) => `<p style="margin:2px 0;color:#555;">${idx + 1}. ${opt}</p>`).join('')
+
+      return `
+        <div style="margin-bottom:20px;padding:16px;border:1px solid #e0e0e0;border-radius:8px;page-break-inside:avoid;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:13px;color:#888;font-weight:600;">#${q.order_num}</span>
+            <span style="font-size:12px;padding:2px 8px;border-radius:4px;background:${q.question_type === 'ox' ? '#dbeafe' : '#ede9fe'};color:${q.question_type === 'ox' ? '#1d4ed8' : '#6d28d9'};">
+              ${q.question_type === 'ox' ? 'O/X' : '객관식'}
+            </span>
+            <span style="font-size:12px;color:#888;">${q.time_limit}초 | ${q.points}점</span>
+          </div>
+          <p style="font-weight:600;font-size:15px;margin:0 0 8px;white-space:pre-wrap;">${q.question_text}</p>
+          ${optionsHTML}
+          <p style="margin-top:8px;font-size:13px;color:#16a34a;font-weight:600;">정답: ${q.correct_answer}</p>
+        </div>
+      `
+    }).join('')
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${room?.room_name} - 퀴즈 문제지</title>
+          <style>
+            body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; padding: 32px; max-width: 800px; margin: 0 auto; color: #111; }
+            h1 { font-size: 22px; margin-bottom: 4px; }
+            .meta { font-size: 13px; color: #888; margin-bottom: 24px; }
+            @media print { body { padding: 16px; } }
+          </style>
+        </head>
+        <body>
+          <h1>${room?.room_name}</h1>
+          <p class="meta">방 코드: ${room?.room_code} &nbsp;|&nbsp; 총 ${questions.length}문제</p>
+          ${questionsHTML}
+          <script>window.onload = () => { window.print(); }</script>
+        </body>
+      </html>
+    `)
+    printWindow.document.close()
+  }
+
   const handleDeleteQuestion = async (questionId: string) => {
     if (!confirm('이 문제를 삭제하시겠습니까?')) return
 
@@ -1566,11 +1755,29 @@ export default function RoomManagePage() {
                     <CardTitle>퀴즈 문제 목록</CardTitle>
                     <CardDescription>총 {questions.length}개의 문제</CardDescription>
                   </div>
-                  {room.status === 'waiting' && (
-                    <Button onClick={() => { resetQuizForm(); setShowQuizModal(true); }}>
-                      + 문제 추가
+                  <div className="flex gap-2">
+                    {questions.length > 0 && (
+                      <Button
+                        variant="outline"
+                        onClick={() => router.push(`/room/${id}/quiz-results`)}
+                      >
+                        결과 통계
+                      </Button>
+                    )}
+                    <Button variant="outline" onClick={() => openQuizHistory(null)}>
+                      변경 이력
                     </Button>
-                  )}
+                    {questions.length > 0 && (
+                      <Button variant="outline" onClick={handleDownloadQuizPDF}>
+                        PDF 다운로드
+                      </Button>
+                    )}
+                    {room.status === 'waiting' && (
+                      <Button onClick={() => { resetQuizForm(); setShowQuizModal(true); }}>
+                        + 문제 추가
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1612,15 +1819,22 @@ export default function RoomManagePage() {
                             정답: {question.correct_answer} | {question.time_limit}초 | {question.points}점
                           </p>
                         </div>
-                        {room.status === 'waiting' && (
-                          <div className="flex gap-2 ml-4">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleEditQuestion(question)}
-                            >
-                              수정
-                            </Button>
+                        <div className="flex gap-2 ml-4">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openQuizHistory(question.id)}
+                          >
+                            이력
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleEditQuestion(question)}
+                          >
+                            수정
+                          </Button>
+                          {room.status === 'waiting' && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1629,8 +1843,8 @@ export default function RoomManagePage() {
                             >
                               삭제
                             </Button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2354,6 +2568,254 @@ export default function RoomManagePage() {
       </main>
 
       {/* 퀴즈 추가/수정 모달 */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h2 className="text-xl font-bold">퀴즈 변경 이력</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {historyQuestionId ? '이 문제의 이력' : '이 방의 전체 이력'}
+                  </p>
+                </div>
+                {historyQuestionId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openQuizHistory(null)}
+                  >
+                    전체 보기
+                  </Button>
+                )}
+              </div>
+
+              {historyLoading ? (
+                <p className="text-center text-gray-500 py-8">불러오는 중...</p>
+              ) : historyEntries.length === 0 ? (
+                <p className="text-center text-gray-500 py-8">
+                  기록된 변경 이력이 없습니다.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {historyEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="border rounded-lg p-4 dark:border-gray-700"
+                    >
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded font-medium ${
+                            entry.action === 'create'
+                              ? 'bg-green-100 text-green-700'
+                              : entry.action === 'delete'
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          {QUIZ_HISTORY_ACTIONS[entry.action]}
+                        </span>
+                        {entry.order_num !== null && (
+                          <span className="text-xs text-gray-500">
+                            #{entry.order_num}
+                          </span>
+                        )}
+                        {/* 게임 진행 중 수정은 채점 결과와 어긋날 수 있어 눈에 띄게 표시 */}
+                        {entry.room_status === 'in_progress' && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">
+                            게임 진행 중 변경
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-500 ml-auto">
+                          {new Date(entry.created_at).toLocaleString('ko-KR')}
+                        </span>
+                      </div>
+
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                        {entry.instructor_name || '알 수 없음'}
+                      </p>
+
+                      {entry.action === 'update' ? (
+                        <div className="space-y-2">
+                          {orderChangedFields(entry.changed_fields).map((field) => {
+                            const change = entry.changed_fields[field]
+                            const context = resolveHistoryContext(entry)
+
+                            // 선택지: 번호별로 짝지어 비교. 바뀐 번호만 강조하고 나머지는 맥락용으로 흐리게
+                            if (field === 'options') {
+                              return (
+                                <div key={field} className="text-sm">
+                                  <span className="font-medium">선택지</span>
+                                  <div className="mt-1 space-y-0.5">
+                                    {buildOptionRows(
+                                      change.before,
+                                      change.after
+                                    ).map((row) => (
+                                      <div
+                                        key={row.number}
+                                        className="flex items-start gap-2"
+                                      >
+                                        <span
+                                          className={`shrink-0 w-6 text-right font-medium ${
+                                            row.changed
+                                              ? 'text-gray-700 dark:text-gray-200'
+                                              : 'text-gray-400'
+                                          }`}
+                                        >
+                                          {row.number}번
+                                        </span>
+                                        {row.changed ? (
+                                          <span className="flex-1">
+                                            <span className="text-red-600 line-through">
+                                              {formatHistoryValue(row.before)}
+                                            </span>
+                                            <span className="text-gray-400 mx-1">
+                                              →
+                                            </span>
+                                            <span className="text-green-600">
+                                              {formatHistoryValue(row.after)}
+                                            </span>
+                                          </span>
+                                        ) : (
+                                          <span className="flex-1 text-gray-400">
+                                            {formatHistoryValue(row.after)}
+                                            <span className="ml-1 text-xs">
+                                              (변경 없음)
+                                            </span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            }
+
+                            // 정답: 몇 번에서 몇 번으로 바뀌었는지가 핵심이라 번호를 앞세워 강조
+                            if (field === 'correct_answer') {
+                              // O/X 문제는 번호가 의미 없으므로 전/후 유형을 각각 보고 판단한다
+                              const beforeNum =
+                                context.questionType.before === 'ox'
+                                  ? null
+                                  : findOptionNumber(
+                                      context.options.before,
+                                      change.before
+                                    )
+                              const afterNum =
+                                context.questionType.after === 'ox'
+                                  ? null
+                                  : findOptionNumber(
+                                      context.options.after,
+                                      change.after
+                                    )
+
+                              return (
+                                <div
+                                  key={field}
+                                  className="text-sm bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded px-3 py-2"
+                                >
+                                  <span className="font-medium">정답</span>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                                    <span className="text-red-600">
+                                      {beforeNum !== null && (
+                                        <span className="font-bold mr-1">
+                                          {beforeNum}번
+                                        </span>
+                                      )}
+                                      <span className="line-through">
+                                        {formatHistoryValue(change.before)}
+                                      </span>
+                                    </span>
+                                    <span className="text-gray-400">→</span>
+                                    <span className="text-green-600 font-medium">
+                                      {afterNum !== null && (
+                                        <span className="font-bold mr-1">
+                                          {afterNum}번
+                                        </span>
+                                      )}
+                                      {formatHistoryValue(change.after)}
+                                    </span>
+                                  </div>
+                                </div>
+                              )
+                            }
+
+                            return (
+                              <div key={field} className="text-sm">
+                                <span className="font-medium">
+                                  {QUIZ_FIELD_LABELS[field] || field}
+                                </span>
+                                <span className="text-gray-400 mx-1">:</span>
+                                <span className="text-red-600 line-through">
+                                  {formatHistoryValue(change.before)}
+                                </span>
+                                <span className="text-gray-400 mx-1">→</span>
+                                <span className="text-green-600">
+                                  {formatHistoryValue(change.after)}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        // 생성/삭제는 그 시점의 문제 전체를 번호와 정답 표시까지 함께 보여준다
+                        entry.snapshot && (
+                          <div className="text-sm space-y-1">
+                            <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                              {formatHistoryValue(entry.snapshot.question_text)}
+                            </p>
+                            {Array.isArray(entry.snapshot.options) && (
+                              <div className="space-y-0.5">
+                                {entry.snapshot.options.map((option, index) => {
+                                  const isAnswer =
+                                    String(option) ===
+                                    String(entry.snapshot?.correct_answer)
+                                  return (
+                                    <div
+                                      key={index}
+                                      className={`flex items-start gap-2 ${
+                                        isAnswer
+                                          ? 'text-green-600 font-medium'
+                                          : 'text-gray-500'
+                                      }`}
+                                    >
+                                      <span className="shrink-0 w-6 text-right">
+                                        {index + 1}번
+                                      </span>
+                                      <span className="flex-1">
+                                        {formatHistoryValue(option)}
+                                        {isAnswer && (
+                                          <span className="ml-1 text-xs">
+                                            (정답)
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex justify-end mt-6">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowHistoryModal(false)}
+                >
+                  닫기
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showQuizModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">

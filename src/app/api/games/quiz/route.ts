@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { getInstructorSession } from '@/lib/auth/instructor-jwt'
+import { recordQuizHistory, pickSnapshot } from '@/lib/games/quiz-history'
 
 // GET /api/games/quiz?room_id=xxx - 방의 퀴즈 문제 목록 조회
 export async function GET(request: NextRequest) {
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
     // 방 소유권 확인
     const { data: room, error: roomError } = await supabase
       .from('game_rooms')
-      .select('id, instructor_id')
+      .select('id, instructor_id, status')
       .eq('id', room_id)
       .single()
 
@@ -137,6 +138,18 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    // 생성 이력 기록 (이후 수정 이력의 기준점이 된다)
+    await recordQuizHistory({
+      questionId: question.id,
+      roomId: room_id,
+      action: 'create',
+      instructorId: session.instructorId,
+      instructorName: session.name,
+      roomStatus: room.status,
+      orderNum: question.order_num,
+      snapshot: pickSnapshot(question),
+    })
 
     return NextResponse.json({ success: true, question }, { status: 201 })
   } catch (error) {

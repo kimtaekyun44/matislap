@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { getInstructorSession } from '@/lib/auth/instructor-jwt'
+import {
+  recordQuizHistory,
+  diffQuizQuestion,
+  pickSnapshot,
+} from '@/lib/games/quiz-history'
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!
+)
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -56,12 +67,10 @@ export async function PATCH(
     const body = await request.json()
     const { question_text, question_type, options, correct_answer, time_limit, points, order_num } = body
 
-    const supabase = await createServerSupabaseClient()
-
     // 문제 및 방 정보 조회
-    const { data: question, error: fetchError } = await supabase
+    const { data: question, error: fetchError } = await supabaseAdmin
       .from('quiz_questions')
-      .select('*, game_rooms!inner(instructor_id)')
+      .select('*, game_rooms!inner(instructor_id, status)')
       .eq('id', id)
       .single()
 
@@ -106,7 +115,7 @@ export async function PATCH(
     }
 
     // 퀴즈 문제 수정
-    const { data: updatedQuestion, error: updateError } = await supabase
+    const { data: updatedQuestion, error: updateError } = await supabaseAdmin
       .from('quiz_questions')
       .update(updateData)
       .eq('id', id)
@@ -119,6 +128,22 @@ export async function PATCH(
         { error: '퀴즈 문제 수정에 실패했습니다.' },
         { status: 500 }
       )
+    }
+
+    // 변경 이력 기록 (실제로 값이 바뀐 경우에만)
+    const changedFields = diffQuizQuestion(question, updatedQuestion)
+    if (Object.keys(changedFields).length > 0) {
+      await recordQuizHistory({
+        questionId: id,
+        roomId: question.room_id,
+        action: 'update',
+        instructorId: session.instructorId,
+        instructorName: session.name,
+        roomStatus: question.game_rooms.status,
+        orderNum: updatedQuestion.order_num,
+        changedFields,
+        snapshot: pickSnapshot(updatedQuestion),
+      })
     }
 
     return NextResponse.json({ success: true, question: updatedQuestion })
@@ -146,12 +171,11 @@ export async function DELETE(
     }
 
     const { id } = await params
-    const supabase = await createServerSupabaseClient()
 
     // 문제 및 방 정보 조회
-    const { data: question, error: fetchError } = await supabase
+    const { data: question, error: fetchError } = await supabaseAdmin
       .from('quiz_questions')
-      .select('*, game_rooms!inner(instructor_id)')
+      .select('*, game_rooms!inner(instructor_id, status)')
       .eq('id', id)
       .single()
 
@@ -171,7 +195,7 @@ export async function DELETE(
     }
 
     // 퀴즈 문제 삭제
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await supabaseAdmin
       .from('quiz_questions')
       .delete()
       .eq('id', id)
@@ -183,6 +207,18 @@ export async function DELETE(
         { status: 500 }
       )
     }
+
+    // 삭제 직전 값을 이력에 남긴다 (문제 행이 사라져도 이력은 보존)
+    await recordQuizHistory({
+      questionId: id,
+      roomId: question.room_id,
+      action: 'delete',
+      instructorId: session.instructorId,
+      instructorName: session.name,
+      roomStatus: question.game_rooms.status,
+      orderNum: question.order_num,
+      snapshot: pickSnapshot(question),
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {
