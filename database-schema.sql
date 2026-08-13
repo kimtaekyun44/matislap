@@ -308,8 +308,13 @@ CREATE TABLE ladder_items (
     id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     room_id    uuid REFERENCES game_rooms(id) ON DELETE CASCADE,
     item_text  text NOT NULL,      -- 사다리 끝에 걸린 당첨/벌칙 내용
-    position   integer NOT NULL,
-    created_at timestamptz DEFAULT now()
+    position   integer NOT NULL,   -- 0부터 연속. 게임 시작 시 재정렬됨
+    created_at timestamptz DEFAULT now(),
+
+    -- [2026-08-13 추가] 참가자 수에 맞춰 자동 생성된 "다음 기회에" 항목 여부.
+    -- 게임 시작 시 (참가자 수 - 당첨 항목 수)만큼 자동 생성되며,
+    -- 재시작할 때 이 값이 true인 행만 지우고 강사가 등록한 항목은 보존한다.
+    is_auto boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE ladder_data (
@@ -487,6 +492,47 @@ ALTER TABLE quiz_question_history ENABLE ROW LEVEL SECURITY;
 --   은 기존 quiz_answers 만으로 계산하므로 스키마 변경이 없습니다.
 
 
+-- ---------------------------------------------------------------------------
+-- 재진입 승인 요청  (migration: 20260813143146_create_rejoin_requests)
+-- ---------------------------------------------------------------------------
+-- 배경: 학생 인증 수단이 닉네임뿐이라, 이미 점수/선택 이력이 있는 참가자로
+--       들어오려는 사람이 본인인지 확인할 방법이 없다.
+--       그렇다고 막아버리면 새로고침으로 localStorage를 잃은 학생이
+--       자기 점수와 자리를 두고 게임에서 배제된다.
+--       그래서 강사가 판단하도록 승인 절차를 둔다.
+--
+-- 참고: 교실은 대부분 NAT라 전원이 같은 공인 IP로 잡힌다.
+--       ip_address 는 본인 판별용이 아니라 사후 추적용 기록이다.
+
+CREATE TABLE rejoin_requests (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    room_id        uuid NOT NULL REFERENCES game_rooms(id) ON DELETE CASCADE,
+    participant_id uuid NOT NULL REFERENCES game_participants(id) ON DELETE CASCADE,
+    nickname       varchar(50) NOT NULL,
+
+    status varchar(20) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected')),
+
+    ip_address text,
+    user_agent text,
+
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    resolved_at timestamptz
+);
+
+CREATE INDEX idx_rejoin_requests_room
+    ON rejoin_requests (room_id, status, created_at DESC);
+
+CREATE INDEX idx_rejoin_requests_participant
+    ON rejoin_requests (participant_id, created_at DESC);
+
+ALTER TABLE rejoin_requests ENABLE ROW LEVEL SECURITY;
+
+-- 참고: game_participants.is_active 를 false 로 바꾸는 코드는 아직 없다.
+--   퇴장 API가 없어서 모든 참가자가 계속 활성 상태로 남는다.
+--   join API 의 "비활성 참가자 재활성화" 분기는 현재 실행되지 않는 경로다.
+
+
 -- ============================================================================
 -- 12. 순환 참조 FK (테이블 생성 후 추가)
 -- ============================================================================
@@ -647,6 +693,8 @@ CREATE POLICY jeopardy_buzzer_log_update ON jeopardy_buzzer_log FOR UPDATE USING
 -- 20260316072013  add_jeopardy_question_type_options
 -- 20260323004501  add_jeopardy_buzzer_answer
 -- 20260811033448  create_quiz_question_history   ← 오늘 추가분
+-- 20260813080927  add_ladder_items_is_auto       ← 오늘 추가분
+-- 20260813143146  create_rejoin_requests         ← 오늘 추가분
 --
 -- ※ 퀴즈/그림 그리기 테이블은 마이그레이션 기록 없이 생성되어
 --    위 목록에 별도 항목이 없습니다 (create_tables 이후 직접 생성된 것으로 보임).
