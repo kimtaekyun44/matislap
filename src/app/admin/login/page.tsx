@@ -54,7 +54,7 @@ export default function AdminLoginPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl text-white">Master Admin</CardTitle>
           <CardDescription className="text-slate-400">
-            MetisLap 관리자 로그인
+            Myhearts.net 관리자 로그인
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleLogin}>
@@ -66,7 +66,7 @@ export default function AdminLoginPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="admin@metislap.com"
+                placeholder="admin@myhearts.net"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required

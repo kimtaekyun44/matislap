@@ -108,7 +108,7 @@ export default function AdminDashboardPage() {
     <div className="min-h-screen bg-slate-900 text-white">
       <header className="border-b border-slate-700 bg-slate-800">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-xl font-bold">MetisLap Admin</h1>
+          <h1 className="text-xl font-bold">Myhearts.net Admin</h1>
           <div className="flex items-center gap-4">
             <span className="text-slate-400">
               {admin?.name || admin?.email}

@@ -82,7 +82,7 @@ export default function InstructorRegisterPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">강사 회원가입</CardTitle>
           <CardDescription>
-            MetisLap 강사로 등록하세요
+            Myhearts.net 강사로 등록하세요
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleRegister}>

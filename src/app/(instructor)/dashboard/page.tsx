@@ -146,7 +146,7 @@ export default function InstructorDashboardPage() {
       <header className="border-b bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <Link href="/" className="text-xl font-bold text-primary">
-            MetisLap
+            Myhearts.net
           </Link>
           <div className="flex items-center gap-4">
             <span className="text-sm text-muted-foreground">

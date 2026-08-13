@@ -57,7 +57,7 @@ export default function InstructorLoginPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">강사 로그인</CardTitle>
           <CardDescription>
-            MetisLap 강사 계정으로 로그인하세요
+            Myhearts.net 강사 계정으로 로그인하세요
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleLogin}>

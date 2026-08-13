@@ -74,7 +74,7 @@ export default function AdminSetupPage() {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl text-white">Initial Setup</CardTitle>
           <CardDescription className="text-slate-400">
-            MetisLap 관리자 계정 초기 설정
+            Myhearts.net 관리자 계정 초기 설정
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSetup}>
@@ -106,7 +106,7 @@ export default function AdminSetupPage() {
                 id="email"
                 name="email"
                 type="email"
-                placeholder="admin@metislap.com"
+                placeholder="admin@myhearts.net"
                 value={formData.email}
                 onChange={handleChange}
                 required
