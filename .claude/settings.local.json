@@ -40,9 +40,28 @@
       "Bash(mkdir:*)",
       "Bash(npm run type-check:*)",
       "Bash(git commit:*)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "WebFetch(domain:www.notion.so)",
+      "Bash(curl:*)",
+      "Bash(for id in 2b8dbf8e-56b8-817f-a64d-ee9e801ea62f 2b8dbf8e-56b8-8139-bf6f-d391e82b8b11 2b8dbf8e-56b8-8168-9b91-dfe2820d4215 2b8dbf8e-56b8-81fb-a689-fe37aaec9fb9 2b8dbf8e-56b8-81a3-8d31-ff154aa46934 2b8dbf8e-56b8-8152-b793-cbf33370d6ee 2b8dbf8e-56b8-818a-8f17-fa6711cf494f 2b8dbf8e-56b8-81cf-8038-d9bbe9191b67 2b8dbf8e-56b8-8197-bc90-dbddbe27d548 2b8dbf8e-56b8-8185-95ae-dd8eae24d638 2b8dbf8e-56b8-8160-b9cd-d77728e2fb31 2b8dbf8e-56b8-8167-8720-cb7fba0da5bd 2b8dbf8e-56b8-8170-bb2d-fa9574d81fe4 2b8dbf8e-56b8-81f6-abf6-f947051c1478 2b8dbf8e-56b8-81c5-9540-e54582742f1c)",
+      "Bash(done)",
+      "Bash(for id in 2b8dbf8e-56b8-813a-af48-ee4f017a222b 2b8dbf8e-56b8-8197-888e-d39542d0a21d 2b8dbf8e-56b8-815f-a846-f81b6ee1af38 2b8dbf8e-56b8-8150-bd4e-d0e1eb791c90 2b8dbf8e-56b8-810a-9e1c-dadc4ca6afa6 2b8dbf8e-56b8-81b3-97bd-d316bdab4213 2b8dbf8e-56b8-81f5-9a9e-d8a665f0a5a1)",
+      "Bash(for id in 2b8dbf8e-56b8-818e-8478-d314e89417d0 2b8dbf8e-56b8-815a-8a36-e5fdae907d70 2b8dbf8e-56b8-81fb-af2d-f9d606e162cf 2b8dbf8e-56b8-8161-b197-df335539cb64 2b8dbf8e-56b8-81ab-b0e1-f6caa4a0da39 2b8dbf8e-56b8-81e0-9938-c90ff67df8c3 2b8dbf8e-56b8-81ba-bf17-f9e1e9ee0c16 2b8dbf8e-56b8-8111-b3c6-d9e0f0ff85bb 2b8dbf8e-56b8-814f-9396-c263906402ad 2b8dbf8e-56b8-8116-bd22-c3385cdf08e6 2b8dbf8e-56b8-8112-a89b-cb8446b1d2c9 2b8dbf8e-56b8-81ac-914e-d04867729b73)",
+      "Bash(for id in 2b8dbf8e-56b8-81c4-b35d-ed50e79e410a 2b8dbf8e-56b8-8130-826b-e4acf97d587d 2b8dbf8e-56b8-81cd-bd38-e9d8ad0174bc 2b8dbf8e-56b8-811e-a5a7-c0e53db31c62 2b8dbf8e-56b8-81d0-bf35-d59995ed8759 2b8dbf8e-56b8-811e-bde8-fc5c293d23d0 2b8dbf8e-56b8-812d-b416-e44ca38d3b76 2b8dbf8e-56b8-81fa-84e3-f2ced0bd250a 2b8dbf8e-56b8-811b-ba39-f86c13facce9 2b8dbf8e-56b8-8179-8454-c8f9d18b73ab 2b8dbf8e-56b8-8107-b254-f6bd7f855d3b 2b8dbf8e-56b8-81c9-b15e-c0d7c9fb58f3)",
+      "Bash(wc -l /c/project/matislap/src/app/\\\\\\(instructor\\\\\\)/room/[id]/page.tsx)",
+      "Bash(xargs grep -l \"quiz_questions\\\\|DrawingWord\\\\|LadderItem\")",
+      "Bash(wc -l \"c:/project/matislap/src/app/\\(instructor\\)/room/[id]/page.tsx\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''projects'',{}\\), indent=2\\)\\)\")",
+      "Bash(wc -l /c/Users/user/.claude/projects/c--project-matislap/*.jsonl)",
+      "Read(//c/Users/user/.claude/plans/**)",
+      "Bash(find /c/project/matislap -name *.sql -type f)",
+      "mcp__supabase__list_migrations"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\project\\matislap\\src\\app\\(instructor)\\room\\[id]",
+      "c:\\project\\matislap\\src\\app\\play\\jeopardy"
+    ]
   }
 }
