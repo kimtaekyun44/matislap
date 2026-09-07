@@ -129,6 +129,42 @@ export default function InstructorDashboardPage() {
     }
   }
 
+
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
+
+  // 방 복사 - 문항만 새 방으로 옮기고 참가자/점수/답변 기록은 가져오지 않는다
+  const handleDuplicateRoom = async (room: GameRoom) => {
+    if (!confirm(`"${room.room_name}" 의 문제만 새 방으로 복사합니다.
+참가자와 점수 기록은 복사되지 않습니다.`)) {
+      return
+    }
+
+    setDuplicatingId(room.id)
+    try {
+      const response = await apiFetch(`/api/games/rooms/${room.id}/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || '방 복사에 실패했습니다.')
+        return
+      }
+
+      toast.success(
+        `복사 완료! 코드: ${data.room.room_code} (문항 ${data.copied_count}개)`
+      )
+      await fetchRooms()
+    } catch {
+      toast.error('방 복사 중 오류가 발생했습니다.')
+    } finally {
+      setDuplicatingId(null)
+    }
+  }
+
   const handleManageRoom = (roomId: string) => {
     router.push(`/room/${roomId}`)
   }
@@ -255,6 +291,15 @@ export default function InstructorDashboardPage() {
                           onClick={() => handleManageRoom(room.id)}
                         >
                           관리
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-16 justify-center"
+                          onClick={() => handleDuplicateRoom(room)}
+                          disabled={duplicatingId === room.id}
+                        >
+                          {duplicatingId === room.id ? '복사중' : '복사'}
                         </Button>
                       </div>
                     </div>
