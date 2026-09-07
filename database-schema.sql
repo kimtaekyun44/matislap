@@ -220,10 +220,20 @@ CREATE TABLE quiz_questions (
     question_type  varchar(20) NOT NULL DEFAULT 'multiple_choice',
     options        jsonb,          -- 선택지 문자열 배열. O/X는 ['O','X']
     correct_answer text NOT NULL,  -- 선택지 "텍스트"를 그대로 저장 (인덱스 아님)
-    time_limit     integer DEFAULT 30,
+    -- [2026-09-07] NULL = 제한 없음. 기본값 30 을 제거해 "제한 없음"이 기본이 되게 함
+    time_limit     integer,
     points         integer DEFAULT 100,
+    -- 삭제해도 다시 매기지 않으므로 1,3,4 처럼 구멍이 생길 수 있다.
+    -- 진행 순서는 이 번호를 직접 찍지 않고 "아직 답하지 않은 첫 문제"로 결정한다.
     order_num      integer NOT NULL,
-    created_at     timestamptz DEFAULT now()
+    created_at     timestamptz DEFAULT now(),
+
+    -- [2026-09-07] 문제에 첨부하는 이미지. Storage 'quiz-images' 버킷의 공개 URL.
+    -- 이미지를 DB에 base64로 넣지 않는 이유: 문제 목록을 강사/학생이 반복 조회해
+    -- 조회할 때마다 원본이 통째로 오간다.
+    -- 방 복사 시 여러 문제가 같은 URL을 참조할 수 있으므로,
+    -- 파일 삭제는 남은 참조가 없을 때만 수행한다 (src/lib/games/quiz-image.ts)
+    image_url text
 );
 
 CREATE INDEX idx_quiz_questions_room_id ON quiz_questions (room_id);
@@ -675,6 +685,18 @@ CREATE POLICY jeopardy_buzzer_log_update ON jeopardy_buzzer_log FOR UPDATE USING
 
 
 -- ============================================================================
+-- 14. Storage 버킷
+-- ============================================================================
+-- 퀴즈 문제 이미지 보관용. 공개 버킷이라 URL 을 아는 사람은 볼 수 있다
+-- (문제 이미지라 민감 정보가 아니라는 전제).
+-- 업로드는 service_role 키를 쓰는 API Route 경유이므로 익명 쓰기 권한은 없다.
+--
+--   insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+--   values ('quiz-images', 'quiz-images', true, 5242880,
+--           array['image/jpeg','image/png','image/webp','image/gif']);
+
+
+-- ============================================================================
 -- 부록. 마이그레이션 이력 (Supabase 기록 기준)
 -- ============================================================================
 -- 20251126234751  create_tb_test_table
@@ -694,7 +716,9 @@ CREATE POLICY jeopardy_buzzer_log_update ON jeopardy_buzzer_log FOR UPDATE USING
 -- 20260323004501  add_jeopardy_buzzer_answer
 -- 20260811033448  create_quiz_question_history   ← 오늘 추가분
 -- 20260813080927  add_ladder_items_is_auto       ← 오늘 추가분
--- 20260813143146  create_rejoin_requests         ← 오늘 추가분
+-- 20260813143146  create_rejoin_requests
+-- 20260907xxxxxx  add_quiz_questions_image_url   ← 2026-09-07 추가분
+-- 20260907xxxxxx  quiz_time_limit_default_none   ← 2026-09-07 추가분
 --
 -- ※ 퀴즈/그림 그리기 테이블은 마이그레이션 기록 없이 생성되어
 --    위 목록에 별도 항목이 없습니다 (create_tables 이후 직접 생성된 것으로 보임).
