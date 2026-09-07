@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { room_id, question_text, question_type, options, correct_answer, time_limit, points } = body
+    const { room_id, question_text, question_type, options, correct_answer, time_limit, points, image_url } = body
 
     // 필수 필드 검증
     if (!room_id || !question_text || !question_type || !correct_answer) {
@@ -124,9 +124,10 @@ export async function POST(request: NextRequest) {
         question_type,
         options: question_type === 'ox' ? ['O', 'X'] : options,
         correct_answer,
-        time_limit: time_limit || 30,
+        time_limit: time_limit ?? null,
         points: points || 100,
-        order_num: nextOrder
+        order_num: nextOrder,
+        image_url: image_url || null
       })
       .select()
       .single()

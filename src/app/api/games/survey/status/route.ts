@@ -35,41 +35,32 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const { count: totalQuestions } = await supabaseAdmin
+    // 퀴즈와 같은 이유로 order_num 을 직접 찍어서 조회하지 않는다.
+    // (문항 삭제로 번호에 구멍이 생기면 학생이 다음 문항을 못 받는다)
+    const { data: questions } = await supabaseAdmin
       .from('survey_questions')
-      .select('*', { count: 'exact', head: true })
+      .select('id, question_text, question_type, options, order_num')
       .eq('room_id', roomId)
+      .order('order_num', { ascending: true })
 
-    const { data: questionIds } = await supabaseAdmin
-      .from('survey_questions')
-      .select('id')
-      .eq('room_id', roomId)
-
-    const questionIdList = questionIds?.map(q => q.id) || []
+    const questionList = questions || []
+    const totalQuestions = questionList.length
+    const questionIdList = questionList.map(q => q.id)
 
     let currentQuestion = null
     let answeredCount = 0
 
     if (room.status === 'in_progress' && participantId && questionIdList.length > 0) {
-      const { count: answered } = await supabaseAdmin
+      const { data: myAnswers } = await supabaseAdmin
         .from('survey_answers')
-        .select('id', { count: 'exact', head: true })
+        .select('question_id')
         .eq('participant_id', participantId)
         .in('question_id', questionIdList)
 
-      answeredCount = answered || 0
-      const nextQuestionIndex = answeredCount + 1
+      const answeredIds = new Set((myAnswers || []).map(a => a.question_id))
+      answeredCount = answeredIds.size
 
-      if (nextQuestionIndex <= (totalQuestions || 0)) {
-        const { data: question } = await supabaseAdmin
-          .from('survey_questions')
-          .select('id, question_text, question_type, options, order_num')
-          .eq('room_id', roomId)
-          .eq('order_num', nextQuestionIndex)
-          .single()
-
-        currentQuestion = question
-      }
+      currentQuestion = questionList.find(q => !answeredIds.has(q.id)) || null
     }
 
     // 강사용: 완료한 참가자 수

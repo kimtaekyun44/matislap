@@ -132,50 +132,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 문제 정보로 room_id 조회
-    const { data: questionWithRoom } = await supabaseAdmin
-      .from('quiz_questions')
-      .select('room_id, order_num')
-      .eq('id', question_id)
-      .single()
-
-    if (questionWithRoom) {
-      const roomId = questionWithRoom.room_id
-
-      // 활성 참가자 수 조회
-      const { count: activeParticipants } = await supabaseAdmin
-        .from('game_participants')
-        .select('*', { count: 'exact', head: true })
-        .eq('room_id', roomId)
-        .eq('is_active', true)
-
-      // 현재 문제에 대한 답변 수 조회
-      const { count: answersCount } = await supabaseAdmin
-        .from('quiz_answers')
-        .select('*', { count: 'exact', head: true })
-        .eq('question_id', question_id)
-
-      // 모든 참가자가 답변했으면 자동으로 다음 문제로 이동
-      if (activeParticipants && answersCount && answersCount >= activeParticipants) {
-        // 총 문제 수 조회
-        const { count: totalQuestions } = await supabaseAdmin
-          .from('quiz_questions')
-          .select('*', { count: 'exact', head: true })
-          .eq('room_id', roomId)
-
-        const currentIndex = questionWithRoom.order_num
-        const nextIndex = currentIndex + 1
-
-        // 마지막 문제가 아니면 다음 문제로 이동
-        // (마지막 문제인 경우 강사가 수동으로 종료해야 함)
-        if (totalQuestions && nextIndex <= totalQuestions) {
-          await supabaseAdmin
-            .from('game_rooms')
-            .update({ current_question_index: nextIndex })
-            .eq('id', roomId)
-        }
-      }
-    }
+    // 참고: 예전에는 모든 참가자가 답하면 game_rooms.current_question_index 를
+    // 올려 전체 진행을 맞췄지만, 개인별 진행으로 바뀌면서 그 값을 읽는 곳이
+    // 없어져 제거했다. 다음 문제는 quiz/status 가 참가자별로 계산한다.
 
     return NextResponse.json({
       success: true,

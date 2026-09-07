@@ -8,7 +8,9 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Input } from '@/components/ui/input'
 import toast from 'react-hot-toast'
 import { apiFetch } from '@/lib/utils/api'
+import { resizeImageFile } from '@/lib/games/resize-image'
 import JeopardyUpload from '@/components/jeopardy/JeopardyUpload'
+import ImageLightbox from '@/components/ImageLightbox'
 
 interface GameRoom {
   id: string
@@ -40,10 +42,11 @@ interface Participant {
 interface QuizQuestion {
   id: string
   question_text: string
+  image_url?: string | null
   question_type: 'multiple_choice' | 'ox'
   options: string[]
   correct_answer: string
-  time_limit: number
+  time_limit: number | null
   points: number
   order_num: number
 }
@@ -247,10 +250,17 @@ export default function RoomManagePage() {
     question_type: 'multiple_choice' as 'multiple_choice' | 'ox',
     options: ['', '', '', ''],
     correct_answer: '',
-    time_limit: 30,
+    time_limit: null as number | null,
     points: 100,
+    image_url: null as string | null,
   })
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null)
+  const [imageUploading, setImageUploading] = useState(false)
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null)
+
+  // 방 이름 인라인 수정
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
 
   // 재진입 승인 요청
   const [rejoinRequests, setRejoinRequests] = useState<RejoinRequest[]>([])
@@ -693,6 +703,45 @@ export default function RoomManagePage() {
       await fetchRoom()
       await fetchLadderGame()
       await fetchLadderItems()
+    } catch {
+      toast.error('오류가 발생했습니다.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+
+  const handleSaveRoomName = async () => {
+    const trimmed = nameDraft.trim()
+
+    if (!trimmed) {
+      toast.error('방 제목을 입력해주세요.')
+      return
+    }
+
+    if (trimmed === room?.room_name) {
+      setEditingName(false)
+      return
+    }
+
+    setActionLoading(true)
+    try {
+      const response = await apiFetch(`/api/games/rooms/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_name: trimmed }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || '제목 변경에 실패했습니다.')
+        return
+      }
+
+      toast.success('제목을 변경했습니다.')
+      setEditingName(false)
+      await fetchRoom()
     } catch {
       toast.error('오류가 발생했습니다.')
     } finally {
@@ -1388,8 +1437,9 @@ export default function RoomManagePage() {
       question_type: 'multiple_choice',
       options: ['', '', '', ''],
       correct_answer: '',
-      time_limit: 30,
+      time_limit: null,
       points: 100,
+      image_url: null,
     })
     setEditingQuestionId(null)
   }
@@ -1404,9 +1454,61 @@ export default function RoomManagePage() {
       correct_answer: question.correct_answer,
       time_limit: question.time_limit,
       points: question.points,
+      image_url: question.image_url ?? null,
     })
     setEditingQuestionId(question.id)
     setShowQuizModal(true)
+  }
+
+  // 파일 선택 / 붙여넣기 공통 업로드 경로
+  const uploadQuizImage = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('이미지 파일만 첨부할 수 있습니다.')
+      return
+    }
+
+    setImageUploading(true)
+    try {
+      // 폰 사진은 그대로 올리면 너무 크므로 가로 1600px 로 줄인다
+      const resized = await resizeImageFile(file)
+
+      const formData = new FormData()
+      formData.append('file', resized)
+      formData.append('room_id', id)
+
+      const response = await apiFetch('/api/games/quiz/image', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        toast.error(data.error || '이미지 업로드에 실패했습니다.')
+        return
+      }
+
+      setQuizForm((prev) => ({ ...prev, image_url: data.image_url }))
+      toast.success('이미지를 첨부했습니다.')
+    } catch {
+      toast.error('이미지 업로드 중 오류가 발생했습니다.')
+    } finally {
+      setImageUploading(false)
+    }
+  }
+
+  // 모달에서 Ctrl+V 로 캡처 이미지를 바로 붙여넣을 수 있게 한다
+  const handleQuizImagePaste = (event: React.ClipboardEvent) => {
+    const item = Array.from(event.clipboardData.items).find((entry) =>
+      entry.type.startsWith('image/')
+    )
+    if (!item) return
+
+    const file = item.getAsFile()
+    if (!file) return
+
+    event.preventDefault()
+    uploadQuizImage(file)
   }
 
   const openQuizHistory = async (questionId: string | null) => {
@@ -1451,9 +1553,10 @@ export default function RoomManagePage() {
             <span style="font-size:12px;padding:2px 8px;border-radius:4px;background:${q.question_type === 'ox' ? '#dbeafe' : '#ede9fe'};color:${q.question_type === 'ox' ? '#1d4ed8' : '#6d28d9'};">
               ${q.question_type === 'ox' ? 'O/X' : '객관식'}
             </span>
-            <span style="font-size:12px;color:#888;">${q.time_limit}초 | ${q.points}점</span>
+            <span style="font-size:12px;color:#888;">${q.time_limit == null ? '제한 없음' : q.time_limit + '초'} | ${q.points}점</span>
           </div>
           <p style="font-weight:600;font-size:15px;margin:0 0 8px;white-space:pre-wrap;">${q.question_text}</p>
+          ${q.image_url ? `<img src="${q.image_url}" style="max-width:100%;max-height:280px;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:8px;" />` : ''}
           ${optionsHTML}
           <p style="margin-top:8px;font-size:13px;color:#16a34a;font-weight:600;">정답: ${q.correct_answer}</p>
         </div>
@@ -1477,7 +1580,7 @@ export default function RoomManagePage() {
           <h1>${room?.room_name}</h1>
           <p class="meta">방 코드: ${room?.room_code} &nbsp;|&nbsp; 총 ${questions.length}문제</p>
           ${questionsHTML}
-          <script>window.onload = () => { window.print(); }</script>
+          <script>window.onload = () => { setTimeout(() => window.print(), 300); }</script>
         </body>
       </html>
     `)
@@ -1631,20 +1734,59 @@ export default function RoomManagePage() {
 
       <main className="container mx-auto px-3 py-4 max-w-lg">
         <div className="mb-4">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h1 className="text-xl font-bold">{room.room_name}</h1>
-            <span
-              className={`px-2 py-0.5 text-xs rounded-full ${
-                room.status === 'in_progress'
-                  ? 'bg-green-100 text-green-700'
-                  : room.status === 'waiting'
-                  ? 'bg-yellow-100 text-yellow-700'
-                  : 'bg-gray-100 text-gray-700'
-              }`}
-            >
-              {room.status === 'in_progress' ? '진행중' : room.status === 'waiting' ? '대기중' : '종료'}
-            </span>
-          </div>
+          {editingName ? (
+            <div className="mb-2 space-y-2">
+              <Input
+                autoFocus
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveRoomName()
+                  if (e.key === 'Escape') setEditingName(false)
+                }}
+                className="text-lg font-bold h-10"
+                maxLength={100}
+                placeholder="방 제목"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleSaveRoomName} disabled={actionLoading}>
+                  저장
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setEditingName(false)}>
+                  취소
+                </Button>
+              </div>
+            </div>
+          ) : (
+            /* 제목은 길어져도 줄바꿈되고, 버튼은 줄어들지 않게 분리한다 */
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-xl font-bold break-words">{room.room_name}</h1>
+                <span
+                  className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full ${
+                    room.status === 'in_progress'
+                      ? 'bg-green-100 text-green-700'
+                      : room.status === 'waiting'
+                      ? 'bg-yellow-100 text-yellow-700'
+                      : 'bg-gray-100 text-gray-700'
+                  }`}
+                >
+                  {room.status === 'in_progress' ? '진행중' : room.status === 'waiting' ? '대기중' : '종료'}
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => {
+                  setNameDraft(room.room_name)
+                  setEditingName(true)
+                }}
+              >
+                제목 수정
+              </Button>
+            </div>
+          )}
           <p className="text-sm text-muted-foreground">
             {GAME_TYPES[room.game_type] || room.game_type}
             {isQuizGame && room.status === 'in_progress' && quizProgress && (
@@ -1848,30 +1990,48 @@ export default function RoomManagePage() {
           {isQuizGame && room.status !== 'in_progress' && (
             <Card className="md:col-span-2">
               <CardHeader>
-                <div className="flex justify-between items-center">
+                {/* 제목 줄과 버튼 줄을 나눈다. 한 줄에 몰면 버튼이 폭을 다 차지해
+                    제목이 세로로 짜부라진다. 버튼은 좁은 화면에서 줄바꿈된다. */}
+                <div className="space-y-3">
                   <div>
-                    <CardTitle>퀴즈 문제 목록</CardTitle>
+                    <CardTitle className="break-keep">퀴즈 문제 목록</CardTitle>
                     <CardDescription>총 {questions.length}개의 문제</CardDescription>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 pt-1 border-t">
                     {questions.length > 0 && (
                       <Button
+                        size="sm"
                         variant="outline"
+                        className="mt-2"
                         onClick={() => router.push(`/room/${id}/quiz-results`)}
                       >
                         결과 통계
                       </Button>
                     )}
-                    <Button variant="outline" onClick={() => openQuizHistory(null)}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2"
+                      onClick={() => openQuizHistory(null)}
+                    >
                       변경 이력
                     </Button>
                     {questions.length > 0 && (
-                      <Button variant="outline" onClick={handleDownloadQuizPDF}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-2"
+                        onClick={handleDownloadQuizPDF}
+                      >
                         PDF 다운로드
                       </Button>
                     )}
                     {room.status === 'waiting' && (
-                      <Button onClick={() => { resetQuizForm(); setShowQuizModal(true); }}>
+                      <Button
+                        size="sm"
+                        className="mt-2 ml-auto"
+                        onClick={() => { resetQuizForm(); setShowQuizModal(true); }}
+                      >
                         + 문제 추가
                       </Button>
                     )}
@@ -1913,8 +2073,23 @@ export default function RoomManagePage() {
                             </span>
                           </div>
                           <p className="font-medium whitespace-pre-wrap">{question.question_text}</p>
+                          {question.image_url && (
+                            <button
+                              type="button"
+                              onClick={() => setZoomedImage(question.image_url!)}
+                              className="mt-2 block"
+                              aria-label="이미지 크게 보기"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={question.image_url}
+                                alt=""
+                                className="max-h-24 rounded border hover:opacity-80 transition-opacity"
+                              />
+                            </button>
+                          )}
                           <p className="text-sm text-muted-foreground mt-1">
-                            정답: {question.correct_answer} | {question.time_limit}초 | {question.points}점
+                            정답: {question.correct_answer} | {question.time_limit == null ? '제한 없음' : `${question.time_limit}초`} | {question.points}점
                           </p>
                         </div>
                         <div className="flex gap-2 ml-4">
@@ -2950,7 +3125,11 @@ export default function RoomManagePage() {
               <h2 className="text-xl font-bold mb-4">
                 {editingQuestionId ? '문제 수정' : '새 문제 추가'}
               </h2>
-              <form onSubmit={handleQuizSubmit} className="space-y-4">
+              <form
+                onSubmit={handleQuizSubmit}
+                onPaste={handleQuizImagePaste}
+                className="space-y-4"
+              >
                 <div>
                   <label className="block text-sm font-medium mb-1">문제 유형</label>
                   <div className="flex gap-4">
@@ -2994,6 +3173,57 @@ export default function RoomManagePage() {
                     onChange={(e) => setQuizForm({ ...quizForm, question_text: e.target.value })}
                     placeholder="문제를 입력하세요"
                   />
+                </div>
+
+                {/* 이미지 첨부 - 파일 선택 또는 Ctrl+V 붙여넣기 */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    이미지 <span className="text-xs text-muted-foreground">(선택)</span>
+                  </label>
+
+                  {quizForm.image_url ? (
+                    <div className="relative inline-block">
+                      {/* 스토리지 이미지라 next/image 최적화 대상이 아님 */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={quizForm.image_url}
+                        alt="첨부 이미지"
+                        onClick={() => setZoomedImage(quizForm.image_url!)}
+                        className="max-h-48 rounded-lg border cursor-zoom-in"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setQuizForm({ ...quizForm, image_url: null })}
+                        className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white text-sm hover:bg-black/80"
+                        title="이미지 제거"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed rounded-lg p-4 text-center">
+                      <input
+                        id="quiz-image-input"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) uploadQuizImage(file)
+                          e.target.value = ''
+                        }}
+                      />
+                      <label
+                        htmlFor="quiz-image-input"
+                        className="cursor-pointer text-sm text-blue-600 hover:underline"
+                      >
+                        {imageUploading ? '업로드 중...' : '이미지 선택'}
+                      </label>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        또는 이 창에서 Ctrl+V 로 붙여넣기 · 5MB 이하
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {quizForm.question_type === 'multiple_choice' ? (
@@ -3055,14 +3285,29 @@ export default function RoomManagePage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">제한 시간 (초)</label>
-                    <Input
-                      type="number"
-                      min={5}
-                      max={120}
-                      value={quizForm.time_limit}
-                      onChange={(e) => setQuizForm({ ...quizForm, time_limit: parseInt(e.target.value) || 30 })}
-                    />
+                    <label className="block text-sm font-medium mb-1">제한 시간</label>
+                    <label className="flex items-center gap-2 text-sm mb-2">
+                      <input
+                        type="checkbox"
+                        checked={quizForm.time_limit === null}
+                        onChange={(e) =>
+                          setQuizForm({
+                            ...quizForm,
+                            time_limit: e.target.checked ? null : 30,
+                          })
+                        }
+                      />
+                      <span>제한 없음</span>
+                    </label>
+                    {quizForm.time_limit !== null && (
+                      <Input
+                        type="number"
+                        min={5}
+                        max={120}
+                        value={quizForm.time_limit}
+                        onChange={(e) => setQuizForm({ ...quizForm, time_limit: parseInt(e.target.value) || 30 })}
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-1">배점</label>
@@ -3274,6 +3519,9 @@ export default function RoomManagePage() {
             </div>
           </div>
         </div>
+      )}
+      {zoomedImage && (
+        <ImageLightbox src={zoomedImage} onClose={() => setZoomedImage(null)} />
       )}
     </div>
   )

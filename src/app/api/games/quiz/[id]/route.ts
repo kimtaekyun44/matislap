@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { getInstructorSession } from '@/lib/auth/instructor-jwt'
+import { deleteQuizImage } from '@/lib/games/quiz-image'
 import {
   recordQuizHistory,
   diffQuizQuestion,
@@ -65,7 +66,7 @@ export async function PATCH(
 
     const { id } = await params
     const body = await request.json()
-    const { question_text, question_type, options, correct_answer, time_limit, points, order_num } = body
+    const { question_text, question_type, options, correct_answer, time_limit, points, order_num, image_url } = body
 
     // 문제 및 방 정보 조회
     const { data: question, error: fetchError } = await supabaseAdmin
@@ -106,6 +107,8 @@ export async function PATCH(
     if (time_limit !== undefined) updateData.time_limit = time_limit
     if (points !== undefined) updateData.points = points
     if (order_num !== undefined) updateData.order_num = order_num
+    // null 을 명시적으로 보내면 이미지 제거를 의미한다
+    if (image_url !== undefined) updateData.image_url = image_url
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
@@ -128,6 +131,11 @@ export async function PATCH(
         { error: '퀴즈 문제 수정에 실패했습니다.' },
         { status: 500 }
       )
+    }
+
+    // 이미지가 교체/제거되었으면 이전 파일을 스토리지에서 지운다
+    if (image_url !== undefined && question.image_url && question.image_url !== image_url) {
+      await deleteQuizImage(question.image_url)
     }
 
     // 변경 이력 기록 (실제로 값이 바뀐 경우에만)
@@ -194,6 +202,15 @@ export async function DELETE(
       )
     }
 
+    // 진행 중에는 삭제 금지. 이미 제출된 답변까지 함께 사라져
+    // 채점 결과와 통계가 어긋난다. (수정은 허용)
+    if (question.game_rooms.status === 'in_progress') {
+      return NextResponse.json(
+        { error: '게임 진행 중에는 문제를 삭제할 수 없습니다.' },
+        { status: 400 }
+      )
+    }
+
     // 퀴즈 문제 삭제
     const { error: deleteError } = await supabaseAdmin
       .from('quiz_questions')
@@ -207,6 +224,9 @@ export async function DELETE(
         { status: 500 }
       )
     }
+
+    // 문제와 함께 첨부 이미지도 정리한다
+    await deleteQuizImage(question.image_url)
 
     // 삭제 직전 값을 이력에 남긴다 (문제 행이 사라져도 이력은 보존)
     await recordQuizHistory({

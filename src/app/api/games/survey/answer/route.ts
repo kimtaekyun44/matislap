@@ -85,36 +85,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 자동 진행 로직: 모든 활성 참가자가 답변하면 다음 문항으로 이동
-    const roomId = question.room_id
-
-    const { count: activeParticipants } = await supabaseAdmin
-      .from('game_participants')
-      .select('*', { count: 'exact', head: true })
-      .eq('room_id', roomId)
-      .eq('is_active', true)
-
-    const { count: answersCount } = await supabaseAdmin
-      .from('survey_answers')
-      .select('*', { count: 'exact', head: true })
-      .eq('question_id', question_id)
-
-    if (activeParticipants && answersCount && answersCount >= activeParticipants) {
-      const { count: totalQuestions } = await supabaseAdmin
-        .from('survey_questions')
-        .select('*', { count: 'exact', head: true })
-        .eq('room_id', roomId)
-
-      const currentIndex = question.order_num
-      const nextIndex = currentIndex + 1
-
-      if (totalQuestions && nextIndex <= totalQuestions) {
-        await supabaseAdmin
-          .from('game_rooms')
-          .update({ current_question_index: nextIndex })
-          .eq('id', roomId)
-      }
-    }
+    // 참고: 예전 전체 진행 방식의 잔재(current_question_index 갱신)를 제거했다.
+    // 개인별 진행으로 바뀐 뒤로 이 값을 읽는 코드가 없다.
 
     return NextResponse.json({ success: true, answer: { id: answer.id } })
   } catch (error) {

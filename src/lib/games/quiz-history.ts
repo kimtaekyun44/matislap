@@ -14,6 +14,7 @@ export const TRACKED_FIELDS = [
   'time_limit',
   'points',
   'order_num',
+  'image_url',
 ] as const
 
 export type QuizHistoryAction = 'create' | 'update' | 'delete'

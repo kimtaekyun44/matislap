@@ -37,46 +37,37 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // 퀴즈 문제 수 조회
-    const { count: totalQuestions } = await supabaseAdmin
+    // 문제 목록을 순서대로 한 번에 가져온다.
+    // order_num 으로 "N번째 문제"를 찍어서 조회하지 않는 이유:
+    // 문제를 삭제해도 번호를 다시 매기지 않아 1,3,4 처럼 구멍이 생기는데,
+    // 그러면 없는 번호를 조회해 학생이 영영 다음 문제를 못 받는다.
+    const { data: questions } = await supabaseAdmin
       .from('quiz_questions')
-      .select('*', { count: 'exact', head: true })
+      .select('id, question_text, question_type, options, time_limit, points, order_num, image_url')
       .eq('room_id', roomId)
+      .order('order_num', { ascending: true })
 
-    // 해당 방의 퀴즈 문제 ID 목록 조회
-    const { data: questionIds } = await supabaseAdmin
-      .from('quiz_questions')
-      .select('id')
-      .eq('room_id', roomId)
-
-    const questionIdList = questionIds?.map(q => q.id) || []
+    const questionList = questions || []
+    const totalQuestions = questionList.length
+    const questionIdList = questionList.map(q => q.id)
 
     // 개인별 진행 상태 조회 (participant_id가 있는 경우)
     let currentQuestion = null
     let answeredCount = 0
 
     if (room.status === 'in_progress' && participantId && questionIdList.length > 0) {
-      // 해당 참가자가 푼 문제 수 조회
-      const { count: answered } = await supabaseAdmin
+      // 이 참가자가 이미 답한 문제들
+      const { data: myAnswers } = await supabaseAdmin
         .from('quiz_answers')
-        .select('id', { count: 'exact', head: true })
+        .select('question_id')
         .eq('participant_id', participantId)
         .in('question_id', questionIdList)
 
-      answeredCount = answered || 0
-      const nextQuestionIndex = answeredCount + 1
+      const answeredIds = new Set((myAnswers || []).map(a => a.question_id))
+      answeredCount = answeredIds.size
 
-      // 아직 풀 문제가 있으면 다음 문제 조회
-      if (nextQuestionIndex <= (totalQuestions || 0)) {
-        const { data: question } = await supabaseAdmin
-          .from('quiz_questions')
-          .select('id, question_text, question_type, options, time_limit, points, order_num')
-          .eq('room_id', roomId)
-          .eq('order_num', nextQuestionIndex)
-          .single()
-
-        currentQuestion = question
-      }
+      // 아직 답하지 않은 문제 중 가장 앞 순서의 것
+      currentQuestion = questionList.find(q => !answeredIds.has(q.id)) || null
     }
 
     // 강사용: 완료한 참가자 수 조회

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import toast from 'react-hot-toast'
 import { apiFetch } from '@/lib/utils/api'
+import ImageLightbox from '@/components/ImageLightbox'
 
 interface Participant {
   id: string
@@ -28,9 +29,10 @@ interface RoomInfo {
 interface QuizQuestion {
   id: string
   question_text: string
+  image_url?: string | null
   question_type: 'multiple_choice' | 'ox'
   options: string[]
-  time_limit: number
+  time_limit: number | null
   points: number
   order_num: number
 }
@@ -75,6 +77,7 @@ export default function PlayPage() {
   const [totalQuestions, setTotalQuestions] = useState<number>(0)
   const [answeredCount, setAnsweredCount] = useState<number>(0) // 개인별 답변 수
   const [quizCompleted, setQuizCompleted] = useState(false) // 모든 문제 완료 여부
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null) // 확대해서 보는 문제 이미지
 
   // 설문조사 관련 상태
   const [currentSurveyQuestion, setCurrentSurveyQuestion] = useState<SurveyQuestion | null>(null)
@@ -183,7 +186,7 @@ export default function PlayPage() {
         setAnsweredCount(answered)
         if (question) {
           setCurrentQuestion(question)
-          setTimeLeft(question.time_limit)
+          setTimeLeft(question.time_limit ?? 0)
           setQuestionStartTime(Date.now())
         } else if (answered >= total && total > 0) {
           // 모든 문제 완료
@@ -227,7 +230,7 @@ export default function PlayPage() {
           if (question) {
             setCurrentQuestion(question)
             setSelectedAnswer(null)
-            setTimeLeft(question.time_limit)
+            setTimeLeft(question.time_limit ?? 0)
             setQuestionStartTime(Date.now())
           } else if (answered >= total && total > 0) {
             setQuizCompleted(true)
@@ -253,7 +256,9 @@ export default function PlayPage() {
 
   // 타이머
   useEffect(() => {
-    if (!currentQuestion || timeLeft <= 0 || answerResult) return
+    // 제한시간이 없는 문제(time_limit === null)는 타이머를 돌리지 않는다
+    if (!currentQuestion || currentQuestion.time_limit == null) return
+    if (timeLeft <= 0 || answerResult) return
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -336,7 +341,7 @@ export default function PlayPage() {
             setCurrentQuestion(question)
             setSelectedAnswer(null)
             setAnswerResult(null)
-            setTimeLeft(question.time_limit)
+            setTimeLeft(question.time_limit ?? 0)
             setQuestionStartTime(Date.now())
           }
         }
@@ -475,7 +480,8 @@ export default function PlayPage() {
 
         {room.status === 'in_progress' && isQuizGame && currentQuestion && (
           <Card className="overflow-hidden">
-            {/* 타이머 바 */}
+            {/* 타이머 바 - 제한시간이 있는 문제에만 */}
+            {currentQuestion.time_limit != null && (
             <div className="h-1.5 bg-gray-200">
               <div
                 className={`h-full transition-all duration-1000 ${
@@ -485,23 +491,44 @@ export default function PlayPage() {
                 style={{ width: `${(timeLeft / currentQuestion.time_limit) * 100}%` }}
               />
             </div>
+            )}
 
             <CardHeader className="pb-2 pt-3">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <p className="text-xs text-muted-foreground">
-                    문제 {currentQuestion.order_num} / {totalQuestions}
+                    문제 {answeredCount + 1} / {totalQuestions}
                   </p>
                   <CardTitle className="text-base whitespace-pre-wrap">{currentQuestion.question_text}</CardTitle>
+                  {currentQuestion.image_url && (
+                    <button
+                      type="button"
+                      onClick={() => setZoomedImage(currentQuestion.image_url!)}
+                      className="mt-2 w-full relative"
+                      aria-label="이미지 크게 보기"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={currentQuestion.image_url}
+                        alt="문제 이미지"
+                        className="w-full max-h-64 object-contain rounded-lg border bg-white"
+                      />
+                      <span className="absolute bottom-1 right-1 px-2 py-0.5 rounded bg-black/60 text-white text-xs">
+                        🔍 크게 보기
+                      </span>
+                    </button>
+                  )}
                 </div>
-                <div className="text-right ml-2">
-                  <p className={`text-2xl font-bold ${
-                    timeLeft > 10 ? 'text-green-600' :
-                    timeLeft > 5 ? 'text-yellow-600' : 'text-red-600'
-                  }`}>
-                    {timeLeft}
-                  </p>
-                </div>
+                {currentQuestion.time_limit != null && (
+                  <div className="text-right ml-2">
+                    <p className={`text-2xl font-bold ${
+                      timeLeft > 10 ? 'text-green-600' :
+                      timeLeft > 5 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>
+                      {timeLeft}
+                    </p>
+                  </div>
+                )}
               </div>
             </CardHeader>
 
@@ -531,10 +558,10 @@ export default function PlayPage() {
                     <button
                       key={idx}
                       onClick={() => handleSubmitAnswer(option)}
-                      disabled={!!answerResult || answering || timeLeft === 0}
+                      disabled={!!answerResult || answering || (currentQuestion.time_limit != null && timeLeft === 0)}
                       className={`p-3 rounded-lg text-left transition-all ${buttonStyle} ${
                         currentQuestion.question_type === 'ox' ? 'text-center' : ''
-                      } ${!answerResult && !answering && timeLeft > 0 ? 'active:scale-95' : ''}`}
+                      } ${!answerResult && !answering && (currentQuestion.time_limit == null || timeLeft > 0) ? 'active:scale-95' : ''}`}
                     >
                       {currentQuestion.question_type === 'ox' ? (
                         <span className={`text-3xl font-bold ${
@@ -582,7 +609,7 @@ export default function PlayPage() {
               )}
 
               {/* 시간 초과 */}
-              {timeLeft === 0 && !answerResult && (
+              {currentQuestion.time_limit != null && timeLeft === 0 && !answerResult && (
                 <div className="mt-3 p-3 rounded-lg text-center bg-gray-50 border border-gray-200">
                   <p className="text-base font-bold text-gray-600">시간 초과</p>
                 </div>
@@ -624,7 +651,7 @@ export default function PlayPage() {
           <Card>
             <CardHeader className="pb-2 pt-3">
               <p className="text-xs text-muted-foreground">
-                문항 {currentSurveyQuestion.order_num} / {surveyTotalQuestions}
+                문항 {surveyAnsweredCount + 1} / {surveyTotalQuestions}
               </p>
               <CardTitle className="text-base whitespace-pre-wrap">{currentSurveyQuestion.question_text}</CardTitle>
             </CardHeader>
@@ -724,6 +751,13 @@ export default function PlayPage() {
           </Card>
         )}
       </div>
+      {zoomedImage && (
+        <ImageLightbox
+          src={zoomedImage}
+          alt="문제 이미지"
+          onClose={() => setZoomedImage(null)}
+        />
+      )}
     </div>
   )
 }
