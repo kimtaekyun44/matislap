@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { getInstructorSession } from '@/lib/auth/instructor-jwt'
 import {
@@ -23,12 +24,22 @@ export async function POST(request: NextRequest) {
     }
 
     const formData = await request.formData()
-    const file = formData.get('file')
+    const entry = formData.get('file')
     const roomId = formData.get('room_id')
 
-    if (!(file instanceof File)) {
+    // globalThis.File 은 Node 20 부터 제공된다. 서버가 Node 18 이면
+    // `instanceof File` 이 ReferenceError 를 내므로 형태로 판별한다.
+    const isUploadedFile =
+      typeof entry === 'object' &&
+      entry !== null &&
+      typeof (entry as Blob).arrayBuffer === 'function' &&
+      typeof (entry as Blob).size === 'number'
+
+    if (!isUploadedFile) {
       return NextResponse.json({ error: '이미지 파일이 필요합니다.' }, { status: 400 })
     }
+
+    const file = entry as Blob
 
     if (typeof roomId !== 'string' || !roomId) {
       return NextResponse.json({ error: '방 ID가 필요합니다.' }, { status: 400 })
@@ -60,7 +71,7 @@ export async function POST(request: NextRequest) {
     }
 
     const extension = QUIZ_IMAGE_EXTENSIONS[file.type] || 'jpg'
-    const path = `${roomId}/${crypto.randomUUID()}.${extension}`
+    const path = `${roomId}/${randomUUID()}.${extension}`
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from(QUIZ_IMAGE_BUCKET)
